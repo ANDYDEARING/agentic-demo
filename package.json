@@ -1,0 +1,28 @@
+{
+  "name": "agentic-demo",
+  "version": "1.0.0",
+  "description": "Tactical RPG prototype",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ANDYDEARING/agentic-demo.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ANDYDEARING/agentic-demo/issues"
+  },
+  "homepage": "https://github.com/ANDYDEARING/agentic-demo#readme",
+  "dependencies": {
+    "@babylonjs/core": "^8.45.3",
+    "@babylonjs/gui": "^8.45.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}
