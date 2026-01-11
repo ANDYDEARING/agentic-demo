@@ -50,6 +50,22 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
   const scene = new Scene(engine);
   scene.clearColor.set(0.1, 0.1, 0.15, 1);
 
+  // Battle music
+  const music = new Audio("/audio/battleThemeA.mp3");
+  music.loop = true;
+  music.volume = 0.5;
+  music.addEventListener("timeupdate", () => {
+    if (music.duration && music.currentTime >= music.duration - 0.5) {
+      music.currentTime = 0;
+    }
+  });
+  music.play();
+
+  scene.onDisposeObservable.add(() => {
+    music.pause();
+    music.src = "";
+  });
+
   const camera = new ArcRotateCamera(
     "camera",
     Math.PI / 4,

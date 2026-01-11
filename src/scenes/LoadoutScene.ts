@@ -23,6 +23,22 @@ export function createLoadoutScene(
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.08, 0.08, 0.12, 1);
 
+  // Loadout music
+  const music = new Audio("/audio/wowchapter1.m4a");
+  music.loop = true;
+  music.volume = 0.5;
+  music.addEventListener("timeupdate", () => {
+    if (music.duration && music.currentTime >= music.duration - 0.5) {
+      music.currentTime = 0;
+    }
+  });
+  music.play();
+
+  scene.onDisposeObservable.add(() => {
+    music.pause();
+    music.src = "";
+  });
+
   new FreeCamera("camera", Vector3.Zero(), scene);
 
   const gui = AdvancedDynamicTexture.CreateFullscreenUI("UI");

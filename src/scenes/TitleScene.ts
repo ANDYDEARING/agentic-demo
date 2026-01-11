@@ -22,11 +22,14 @@ export function createTitleScene(
   const music = new Audio("/audio/rise-above.m4a");
   music.loop = true;
   music.volume = 0.5;
-  // Ensure looping works
-  music.addEventListener("ended", () => {
-    music.currentTime = 0;
-    music.play();
+
+  // Force loop near end (workaround for m4a not triggering loop/ended events)
+  music.addEventListener("timeupdate", () => {
+    if (music.duration && music.currentTime >= music.duration - 0.5) {
+      music.currentTime = 0;
+    }
   });
+
   music.play();
 
   // Clean up when scene is disposed
