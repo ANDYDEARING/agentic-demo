@@ -17,18 +17,19 @@ const GRID_SIZE = 8;
 const TILE_SIZE = 1;
 const TILE_GAP = 0.05;
 
-// Unit stats per type
 const UNIT_STATS = {
   tank: { hp: 100, attack: 15, moveRange: 2, attackRange: 1 },
   damage: { hp: 50, attack: 30, moveRange: 4, attackRange: 2 },
   support: { hp: 60, attack: 10, moveRange: 3, attackRange: 3 },
 };
 
+type Team = "player" | "enemy";
+
 interface Unit {
   mesh: Mesh;
   baseMesh: Mesh;
   type: "tank" | "damage" | "support";
-  team: "player" | "enemy";
+  team: Team;
   gridX: number;
   gridZ: number;
   moveRange: number;
@@ -37,13 +38,16 @@ interface Unit {
   maxHp: number;
   attack: number;
   hpBar?: Rectangle;
+  hpBarBg?: Rectangle;
+  hasMoved: boolean;
+  hasAttacked: boolean;
+  originalColor: Color3;
 }
 
 export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): Scene {
   const scene = new Scene(engine);
   scene.clearColor.set(0.1, 0.1, 0.15, 1);
 
-  // Camera - isometric view
   const camera = new ArcRotateCamera(
     "camera",
     Math.PI / 4,
@@ -58,12 +62,11 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
   camera.lowerRadiusLimit = 8;
   camera.upperRadiusLimit = 20;
 
-  // Lighting
   new HemisphericLight("ambientLight", new Vector3(0, 1, 0), scene);
   const dirLight = new DirectionalLight("dirLight", new Vector3(-1, -2, -1), scene);
   dirLight.intensity = 0.5;
 
-  // Materials
+  // Tile materials
   const tileMaterialLight = new StandardMaterial("tileLightMat", scene);
   tileMaterialLight.diffuseColor = new Color3(0.3, 0.5, 0.3);
 
@@ -114,12 +117,10 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
   // Units
   const units: Unit[] = [];
 
-  // Player units
   units.push(createUnit("tank", "player", 1, 1, scene, unitMaterials, gridOffset, gui));
   units.push(createUnit("damage", "player", 3, 0, scene, unitMaterials, gridOffset, gui));
   units.push(createUnit("support", "player", 5, 1, scene, unitMaterials, gridOffset, gui));
 
-  // Enemy units
   units.push(createUnit("tank", "enemy", 6, 6, scene, unitMaterials, gridOffset, gui));
   units.push(createUnit("damage", "enemy", 4, 7, scene, unitMaterials, gridOffset, gui));
   units.push(createUnit("support", "enemy", 2, 6, scene, unitMaterials, gridOffset, gui));
@@ -129,6 +130,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
   let highlightedTiles: Mesh[] = [];
   let attackableUnits: Unit[] = [];
   let gameOver = false;
+  let currentTeam: Team = "player";
 
   function getDefaultTileMaterial(x: number, z: number): StandardMaterial {
     return (x + z) % 2 === 0 ? tileMaterialLight : tileMaterialDark;
@@ -144,6 +146,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
   }
 
   function getValidMoveTiles(unit: Unit): { x: number; z: number }[] {
+    if (unit.hasMoved) return []; // Already moved this turn
     const valid: { x: number; z: number }[] = [];
     for (let x = 0; x < GRID_SIZE; x++) {
       for (let z = 0; z < GRID_SIZE; z++) {
@@ -160,6 +163,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
   }
 
   function getAttackableEnemies(unit: Unit): Unit[] {
+    if (unit.hasAttacked) return []; // Already attacked this turn
     return units.filter(u => {
       if (u.team === unit.team) return false;
       const distance = Math.abs(u.gridX - unit.gridX) + Math.abs(u.gridZ - unit.gridZ);
@@ -170,7 +174,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
   function highlightValidActions(unit: Unit): void {
     clearHighlights();
 
-    // Highlight move tiles
+    // Highlight move tiles (if hasn't moved)
     const validTiles = getValidMoveTiles(unit);
     for (const { x, z } of validTiles) {
       const tile = tiles[x][z];
@@ -183,7 +187,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
     currentTile.material = selectedMaterial;
     highlightedTiles.push(currentTile);
 
-    // Highlight attackable enemies
+    // Highlight attackable enemies (if hasn't attacked)
     attackableUnits = getAttackableEnemies(unit);
     for (const enemy of attackableUnits) {
       const tile = tiles[enemy.gridX][enemy.gridZ];
@@ -199,9 +203,40 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
     });
   }
 
+  function setUnitExhausted(unit: Unit): void {
+    // Desaturate the unit mesh
+    const mat = unit.mesh.material as StandardMaterial;
+    const gray = (unit.originalColor.r + unit.originalColor.g + unit.originalColor.b) / 3;
+    mat.diffuseColor = new Color3(gray * 0.5, gray * 0.5, gray * 0.5);
+
+    // Dim the base
+    const baseMat = unit.baseMesh.material as StandardMaterial;
+    baseMat.diffuseColor = baseMat.diffuseColor.scale(0.4);
+    baseMat.emissiveColor = new Color3(0, 0, 0);
+  }
+
+  function resetUnitAppearance(unit: Unit): void {
+    const mat = unit.mesh.material as StandardMaterial;
+    mat.diffuseColor = unit.team === "enemy"
+      ? unit.originalColor.scale(0.7)
+      : unit.originalColor.clone();
+
+    const baseMat = unit.baseMesh.material as StandardMaterial;
+    if (unit.team === "player") {
+      baseMat.diffuseColor = new Color3(0.2, 0.4, 0.9);
+      baseMat.emissiveColor = new Color3(0.1, 0.2, 0.4);
+    } else {
+      baseMat.diffuseColor = new Color3(0.9, 0.4, 0.2);
+      baseMat.emissiveColor = new Color3(0.4, 0.2, 0.1);
+    }
+  }
+
   function attackUnit(attacker: Unit, defender: Unit): void {
     defender.hp -= attacker.attack;
     console.log(`${attacker.team} ${attacker.type} attacks ${defender.team} ${defender.type} for ${attacker.attack} damage! (${defender.hp}/${defender.maxHp} HP)`);
+
+    attacker.hasAttacked = true;
+    setUnitExhausted(attacker);
 
     updateHpBar(defender);
 
@@ -209,13 +244,10 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
       console.log(`${defender.team} ${defender.type} was defeated!`);
       defender.mesh.dispose();
       defender.baseMesh.dispose();
-      if (defender.hpBar) {
-        defender.hpBar.dispose();
-      }
+      if (defender.hpBar) defender.hpBar.dispose();
+      if (defender.hpBarBg) defender.hpBarBg.dispose();
       const index = units.indexOf(defender);
-      if (index > -1) {
-        units.splice(index, 1);
-      }
+      if (index > -1) units.splice(index, 1);
       checkWinCondition();
     }
   }
@@ -259,6 +291,34 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
     }
   }
 
+  function endTurn(): void {
+    clearHighlights();
+    selectedUnit = null;
+
+    // Reset all units for the current team
+    for (const unit of units) {
+      unit.hasMoved = false;
+      unit.hasAttacked = false;
+      resetUnitAppearance(unit);
+    }
+
+    // Switch teams
+    currentTeam = currentTeam === "player" ? "enemy" : "player";
+    updateTurnIndicator();
+  }
+
+  function updateTurnIndicator(): void {
+    const teamName = currentTeam === "player" ? "Player 1" : "Player 2";
+    const teamColor = currentTeam === "player" ? "#4488ff" : "#ff8844";
+    turnText.text = `${teamName}'s Turn`;
+    turnText.color = teamColor;
+  }
+
+  function canSelectUnit(unit: Unit): boolean {
+    // Must be current team and not exhausted (attacked)
+    return unit.team === currentTeam && !unit.hasAttacked;
+  }
+
   // Click handling
   scene.onPointerObservable.add((pointerInfo) => {
     if (gameOver) return;
@@ -275,8 +335,23 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
       if (selectedUnit) {
         if (isValidMove(gridX, gridZ)) {
           moveUnit(selectedUnit, gridX, gridZ, gridOffset);
-          clearHighlights();
-          selectedUnit = null;
+          selectedUnit.hasMoved = true;
+
+          // After moving, check if can still attack
+          if (!selectedUnit.hasAttacked) {
+            // Re-highlight to show attack options from new position
+            highlightValidActions(selectedUnit);
+
+            // If no actions left, deselect
+            const canAttack = getAttackableEnemies(selectedUnit).length > 0;
+            if (!canAttack) {
+              clearHighlights();
+              selectedUnit = null;
+            }
+          } else {
+            clearHighlights();
+            selectedUnit = null;
+          }
         } else {
           clearHighlights();
           selectedUnit = null;
@@ -296,11 +371,11 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
         }
       }
 
-      // Select/deselect unit
+      // Try to select/deselect unit
       if (selectedUnit === clickedUnit) {
         clearHighlights();
         selectedUnit = null;
-      } else {
+      } else if (canSelectUnit(clickedUnit)) {
         selectedUnit = clickedUnit;
         highlightValidActions(clickedUnit);
         console.log(`Selected ${clickedUnit.team} ${clickedUnit.type} (HP: ${clickedUnit.hp}/${clickedUnit.maxHp}, ATK: ${clickedUnit.attack})`);
@@ -310,10 +385,11 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
 
   // Turn indicator
   const turnText = new TextBlock();
-  turnText.text = "Click a unit to select, then move or attack";
-  turnText.color = "white";
-  turnText.fontSize = 20;
+  turnText.text = "Player 1's Turn";
+  turnText.color = "#4488ff";
+  turnText.fontSize = 24;
   turnText.top = "-45%";
+  turnText.fontWeight = "bold";
   gui.addControl(turnText);
 
   // End turn button
@@ -325,8 +401,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement): S
   endTurnBtn.cornerRadius = 5;
   endTurnBtn.top = "45%";
   endTurnBtn.onPointerClickObservable.add(() => {
-    clearHighlights();
-    selectedUnit = null;
+    endTurn();
   });
   gui.addControl(endTurnBtn);
 
@@ -368,7 +443,7 @@ function createUnitMaterial(name: string, color: Color3, scene: Scene): Standard
 
 function createUnit(
   type: "tank" | "damage" | "support",
-  team: "player" | "enemy",
+  team: Team,
   gridX: number,
   gridZ: number,
   scene: Scene,
@@ -387,7 +462,7 @@ function createUnit(
 
   // Team indicator base
   const baseMesh = MeshBuilder.CreateCylinder(
-    `${team}_${type}_base`,
+    `${team}_${type}_base_${gridX}_${gridZ}`,
     { diameter: 0.8, height: 0.08, tessellation: 24 },
     scene
   );
@@ -402,19 +477,22 @@ function createUnit(
   );
 
   // Unit mesh
-  const mesh = MeshBuilder.CreateBox(`${team}_${type}`, size, scene);
+  const mesh = MeshBuilder.CreateBox(`${team}_${type}_${gridX}_${gridZ}`, size, scene);
   mesh.position = new Vector3(
     gridX * TILE_SIZE - gridOffset,
     size.height / 2 + 0.14,
     gridZ * TILE_SIZE - gridOffset
   );
 
+  const originalColor = materials[type].diffuseColor.clone();
+
   if (team === "enemy") {
     const enemyMat = materials[type].clone(`${type}_enemy_${gridX}_${gridZ}`);
-    enemyMat.diffuseColor = materials[type].diffuseColor.scale(0.7);
+    enemyMat.diffuseColor = originalColor.scale(0.7);
     mesh.material = enemyMat;
   } else {
-    mesh.material = materials[type];
+    const playerMat = materials[type].clone(`${type}_player_${gridX}_${gridZ}`);
+    mesh.material = playerMat;
   }
 
   mesh.metadata = { type: "unit", unitType: type, team };
@@ -440,7 +518,7 @@ function createUnit(
   hpBar.left = "2px";
   hpBarBg.addControl(hpBar);
 
-  const unit: Unit = {
+  return {
     mesh,
     baseMesh,
     type,
@@ -453,9 +531,11 @@ function createUnit(
     maxHp: stats.hp,
     attack: stats.attack,
     hpBar,
+    hpBarBg,
+    hasMoved: false,
+    hasAttacked: false,
+    originalColor,
   };
-
-  return unit;
 }
 
 function moveUnit(unit: Unit, newX: number, newZ: number, gridOffset: number): void {
