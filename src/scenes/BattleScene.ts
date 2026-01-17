@@ -10,7 +10,9 @@ import {
   Color3,
   Mesh,
   PointerEventTypes,
+  SceneLoader,
 } from "@babylonjs/core";
+import "@babylonjs/loaders/glTF";
 import { AdvancedDynamicTexture, TextBlock, Button, Rectangle } from "@babylonjs/gui";
 import type { Loadout, UnitType } from "../types";
 
@@ -786,6 +788,31 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
   // Initialize the game
   startGame();
+
+  // Test: Load adventurer model
+  SceneLoader.ImportMeshAsync("", "/models/", "AdventurerTest.glb", scene).then((result) => {
+    console.log("Loaded meshes:", result.meshes.map(m => m.name));
+    console.log("Animations:", result.animationGroups.map(a => a.name));
+
+    // Position the model on the board (center-ish)
+    const root = result.meshes[0];
+    root.position = new Vector3(0, 0.1, 0);
+    root.scaling = new Vector3(0.5, 0.5, 0.5); // Scale down if too big
+
+    // Stop all animations and play Walk to test
+    result.animationGroups.forEach(ag => ag.stop());
+    const walkAnim = result.animationGroups.find(ag => ag.name === "Walk");
+    if (walkAnim) {
+      walkAnim.start(true); // true = loop
+    }
+
+    // Log materials for debugging
+    result.meshes.forEach(mesh => {
+      if (mesh.material) {
+        console.log(`Mesh "${mesh.name}" has material: ${mesh.material.name}`);
+      }
+    });
+  });
 
   return scene;
 }
