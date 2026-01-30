@@ -8,7 +8,6 @@ import {
   SceneLoader,
   AbstractMesh,
   AnimationGroup,
-  PointerEventTypes,
   RenderTargetTexture,
   PBRMaterial,
 } from "@babylonjs/core";
@@ -26,6 +25,7 @@ import {
 } from "@babylonjs/gui";
 import { ALL_CLASSES, getClassData, Loadout, UnitClass, UnitCustomization, SceneName } from "../types";
 import { getGameMode, setGameMode } from "../main";
+import { enableTouchScroll } from "../utils";
 
 // Import centralized config
 import {
@@ -359,8 +359,6 @@ export function createLoadoutScene(
   scrollViewer.width = "100%";
   scrollViewer.height = "100%";
   scrollViewer.thickness = 0;
-  scrollViewer.barSize = 0;
-  scrollViewer.barColor = "transparent";
   scrollViewer.wheelPrecision = 0.05;
   gui.addControl(scrollViewer);
 
@@ -371,51 +369,20 @@ export function createLoadoutScene(
   mainStack.paddingBottom = "90px"; // Space for start button
   scrollViewer.addControl(mainStack);
 
-  // Custom drag-to-scroll
-  let isDragging = false;
-  let lastPointerY = 0;
-  let customizeOverlayVisible = false;
   // Track scrolling state to pause RTT updates (prevents flickering)
   let isScrolling = false;
-  let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  const setScrolling = () => {
-    isScrolling = true;
-    if (scrollTimeout) clearTimeout(scrollTimeout);
-    scrollTimeout = setTimeout(() => {
-      isScrolling = false;
-    }, 150); // Resume RTT updates 150ms after scroll stops
-  };
+  // Enable touch scrolling with RTT pause callbacks
+  const mainScrollCleanup = enableTouchScroll(scrollViewer, mainStack, {
+    hideScrollbar: true,
+    onScrollStart: () => { isScrolling = true; },
+    onScrollEnd: () => { isScrolling = false; },
+    scrollEndDelay: 150
+  });
 
-  scene.onPointerObservable.add((pointerInfo) => {
-    if (customizeOverlayVisible) return;
-
-    const evt = pointerInfo.event;
-
-    if (pointerInfo.type === PointerEventTypes.POINTERDOWN) {
-      isDragging = true;
-      lastPointerY = evt.clientY;
-    }
-
-    if (pointerInfo.type === PointerEventTypes.POINTERUP) {
-      isDragging = false;
-    }
-
-    if (pointerInfo.type === PointerEventTypes.POINTERMOVE && isDragging) {
-      const deltaY = lastPointerY - evt.clientY;
-      lastPointerY = evt.clientY;
-
-      const contentHeight = mainStack.heightInPixels;
-      const viewportHeight = scrollViewer.heightInPixels;
-      const maxScroll = contentHeight - viewportHeight;
-
-      if (maxScroll > 0) {
-        setScrolling(); // Mark as scrolling to pause RTT updates
-        const scrollDelta = deltaY / maxScroll;
-        const newScroll = Math.max(0, Math.min(1, scrollViewer.verticalBar.value + scrollDelta));
-        scrollViewer.verticalBar.value = newScroll;
-      }
-    }
+  // Clean up on scene dispose
+  scene.onDisposeObservable.add(() => {
+    mainScrollCleanup.dispose();
   });
 
   // ============================================
@@ -2004,7 +1971,6 @@ export function createLoadoutScene(
 
     optionsScroll.verticalBar.value = 0;
     customizeOverlay.isVisible = true;
-    customizeOverlayVisible = true;
   }
 
   function closeCustomizeEditor(save: boolean): void {
@@ -2032,7 +1998,6 @@ export function createLoadoutScene(
     }
 
     customizeOverlay.isVisible = false;
-    customizeOverlayVisible = false;
     editingState = null;
 
     // Clean up editor preview model
