@@ -334,21 +334,10 @@ export function createTitleScene(
     return button;
   }
 
-  // Local PvP button
-  const pvpButton = createModeButton("L O C A L   P V P", "local-pvp");
-  panel.addControl(pvpButton);
-  modeButtons.push(pvpButton);
-
-  // Small spacer between buttons
-  const buttonSpacer = new TextBlock();
-  buttonSpacer.height = buttonSpacerHeight;
-  buttonSpacer.text = "";
-  panel.addControl(buttonSpacer);
-
-  // Local PvE button
-  const pveButton = createModeButton("L O C A L   P V E", "local-pve");
-  panel.addControl(pveButton);
-  modeButtons.push(pveButton);
+  // Play button (replaces separate PvP/PvE - AI toggle moved to loadout)
+  const playButton = createModeButton("P L A Y", "local-pvp");
+  panel.addControl(playButton);
+  modeButtons.push(playButton);
 
   // Small spacer before how-to button
   const buttonSpacer2 = new TextBlock();

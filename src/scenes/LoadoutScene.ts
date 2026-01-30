@@ -25,7 +25,7 @@ import {
   Image,
 } from "@babylonjs/gui";
 import { ALL_CLASSES, getClassData, Loadout, UnitClass, UnitCustomization, SceneName } from "../types";
-import { getGameMode } from "../main";
+import { getGameMode, setGameMode } from "../main";
 
 // Import centralized config
 import {
@@ -238,6 +238,25 @@ export function createLoadoutScene(
   const light = new HemisphericLight("light", new Vector3(0, 1, 0.5), scene);
   light.intensity = 1.2;
 
+  // Create preview lights for RTT rendering (one for each possible layer mask)
+  // RTT cameras have specific layer masks, so we need lights visible to those cameras
+  for (let i = 0; i < 7; i++) {
+    const previewLight = new HemisphericLight(`previewLight_${i}`, new Vector3(0, 1, 0.5), scene);
+    previewLight.intensity = 1.5;
+    previewLight.includedOnlyMeshes = [];
+    // Will be populated when models load
+  }
+  // Reference all preview lights for model loading
+  const getPreviewLightForMask = (mask: number): HemisphericLight | null => {
+    for (let i = 0; i < 7; i++) {
+      const checkMask = i < 6 ? (0x10000000 << i) : 0x20000000;
+      if (mask === checkMask) {
+        return scene.getLightByName(`previewLight_${i}`) as HemisphericLight;
+      }
+    }
+    return null;
+  };
+
   const gui = AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
   // Get game mode
@@ -257,6 +276,9 @@ export function createLoadoutScene(
 
   // Current team for mobile view
   let currentTeam: "player1" | "player2" = "player1";
+
+  // AI toggle for Player 2 (defaults to human vs human)
+  let isP2Computer = gameMode === "local-pve";
 
   // Track callbacks
   const previewRefreshCallbacks: { player1: (() => void)[]; player2: (() => void)[] } = {
@@ -401,6 +423,8 @@ export function createLoadoutScene(
   let p2Tab: Button | null = null;
   const p1Cards: Rectangle[] = [];
   const p2Cards: Rectangle[] = [];
+  let mobileColorRefresh: (() => void) | null = null;
+  let mobileAiToggleBtn: Button | null = null;
 
   if (isMobile) {
     const tabsContainer = new StackPanel("tabsContainer");
@@ -438,6 +462,30 @@ export function createLoadoutScene(
     p2Tab.onPointerClickObservable.add(() => switchTeam("player2"));
     tabsContainer.addControl(p2Tab);
 
+    // AI toggle for P2 (small circle button)
+    const aiSpacer = new Rectangle();
+    aiSpacer.width = "8px";
+    aiSpacer.height = "1px";
+    aiSpacer.thickness = 0;
+    tabsContainer.addControl(aiSpacer);
+
+    mobileAiToggleBtn = Button.CreateSimpleButton("mobileAiToggle", isP2Computer ? "🤖" : "👤");
+    mobileAiToggleBtn.width = "36px";
+    mobileAiToggleBtn.height = "36px";
+    mobileAiToggleBtn.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
+    mobileAiToggleBtn.color = COLORS.textPrimary;
+    mobileAiToggleBtn.cornerRadius = 18;
+    mobileAiToggleBtn.fontSize = 16;
+    mobileAiToggleBtn.thickness = 0;
+    mobileAiToggleBtn.onPointerClickObservable.add(() => {
+      isP2Computer = !isP2Computer;
+      if (mobileAiToggleBtn && mobileAiToggleBtn.textBlock) {
+        mobileAiToggleBtn.textBlock.text = isP2Computer ? "🤖" : "👤";
+      }
+      mobileAiToggleBtn!.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
+    });
+    tabsContainer.addControl(mobileAiToggleBtn);
+
     // Team color swatches (right side)
     const colorContainer = new StackPanel("mobileColorContainer");
     colorContainer.isVertical = false;
@@ -448,8 +496,6 @@ export function createLoadoutScene(
 
     createTeamColorSwatches(colorContainer, () => currentTeam);
   }
-
-  let mobileColorRefresh: (() => void) | null = null;
 
   function switchTeam(team: "player1" | "player2"): void {
     currentTeam = team;
@@ -597,8 +643,15 @@ export function createLoadoutScene(
     const headerGrid = new Grid(`${playerId}HeaderGrid`);
     headerGrid.width = "100%";
     headerGrid.height = "100%";
-    headerGrid.addColumnDefinition(0.3);
-    headerGrid.addColumnDefinition(0.7);
+    // P2 needs extra column for AI toggle
+    if (playerId === "player2") {
+      headerGrid.addColumnDefinition(0.25);
+      headerGrid.addColumnDefinition(0.25); // AI toggle
+      headerGrid.addColumnDefinition(0.5);
+    } else {
+      headerGrid.addColumnDefinition(0.3);
+      headerGrid.addColumnDefinition(0.7);
+    }
     headerGrid.addRowDefinition(1);
     header.addControl(headerGrid);
 
@@ -613,12 +666,41 @@ export function createLoadoutScene(
     nameText.paddingLeft = "10px";
     headerGrid.addControl(nameText, 0, 0);
 
-    // Team colors
+    // AI toggle for Player 2
+    if (playerId === "player2") {
+      const aiToggleContainer = new StackPanel();
+      aiToggleContainer.isVertical = false;
+      aiToggleContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+      headerGrid.addControl(aiToggleContainer, 0, 1);
+
+      const aiToggleBtn = Button.CreateSimpleButton("aiToggle", isP2Computer ? "🤖 CPU" : "👤 Human");
+      aiToggleBtn.width = "90px";
+      aiToggleBtn.height = "28px";
+      aiToggleBtn.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
+      aiToggleBtn.color = COLORS.textPrimary;
+      aiToggleBtn.cornerRadius = 4;
+      aiToggleBtn.fontSize = 12;
+      aiToggleBtn.onPointerClickObservable.add(() => {
+        isP2Computer = !isP2Computer;
+        if (aiToggleBtn.textBlock) {
+          aiToggleBtn.textBlock.text = isP2Computer ? "🤖 CPU" : "👤 Human";
+        }
+        aiToggleBtn.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
+        // Update mobile toggle if exists
+        if (mobileAiToggleBtn && mobileAiToggleBtn.textBlock) {
+          mobileAiToggleBtn.textBlock.text = isP2Computer ? "🤖" : "👤";
+          mobileAiToggleBtn.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
+        }
+      });
+      aiToggleContainer.addControl(aiToggleBtn);
+    }
+
+    // Team colors (column 1 for P1, column 2 for P2 due to AI toggle)
     const colorRow = new StackPanel();
     colorRow.isVertical = false;
     colorRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
     colorRow.paddingRight = "10px";
-    headerGrid.addControl(colorRow, 0, 1);
+    headerGrid.addControl(colorRow, 0, playerId === "player2" ? 2 : 1);
 
     const swatches: Rectangle[] = [];
 
@@ -679,77 +761,109 @@ export function createLoadoutScene(
     const key = `${playerId}_${unitIndex}`;
     const state = unitStates[key];
 
-    const cardHeight = isMobile ? 320 : "100%";
-    const cardWidth = isMobile ? "95%" : "95%";
-
     const card = new Rectangle(`card_${key}`);
-    card.width = cardWidth;
-    card.height = typeof cardHeight === "number" ? `${cardHeight}px` : cardHeight;
+    card.width = "95%";
+    card.height = isMobile ? "160px" : "100%";
     card.background = COLORS.bgPanel;
     card.cornerRadius = 8;
     card.thickness = 1;
     card.color = COLORS.borderWarm;
-    card.paddingTop = "10px";
-    card.paddingBottom = "10px";
-    card.paddingLeft = "5px";
-    card.paddingRight = "5px";
+    card.paddingTop = "8px";
+    card.paddingBottom = "8px";
+    card.paddingLeft = "8px";
+    card.paddingRight = "8px";
 
-    const cardStack = new StackPanel(`cardStack_${key}`);
-    cardStack.width = "100%";
-    cardStack.isVertical = true;
-    card.addControl(cardStack);
+    // Main grid: 2 columns (copy left, preview right)
+    const cardGrid = new Grid(`cardGrid_${key}`);
+    cardGrid.width = "100%";
+    cardGrid.height = "100%";
+    cardGrid.addColumnDefinition(0.55); // Left column - copy
+    cardGrid.addColumnDefinition(0.45); // Right column - preview
+    cardGrid.addRowDefinition(1, false); // Single content row
+    card.addControl(cardGrid);
 
-    // Preview container
-    const previewSize = isMobile ? 140 : Math.min(150, screenHeight * 0.18);
-    const previewContainer = new Rectangle(`preview_${key}`);
-    previewContainer.width = `${previewSize}px`;
-    previewContainer.height = `${previewSize}px`;
-    previewContainer.background = COLORS.bgPreview;
-    previewContainer.cornerRadius = 8;
-    previewContainer.thickness = 0;
-    cardStack.addControl(previewContainer);
+    // Left column: copy (use Grid instead of StackPanel to support percentage heights)
+    const copyGrid = new Grid(`copyGrid_${key}`);
+    copyGrid.width = "100%";
+    copyGrid.height = "100%";
+    copyGrid.addRowDefinition(32, true); // Title row - fixed height
+    copyGrid.addRowDefinition(1, false); // Description - takes remaining space
+    copyGrid.addColumnDefinition(1);
+    copyGrid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    copyGrid.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    cardGrid.addControl(copyGrid, 0, 0);
+
+    // Title row: Symbol + Class name on left, Edit button on right
+    const titleRow = new Grid(`titleRow_${key}`);
+    titleRow.width = "100%";
+    titleRow.height = "100%";
+    titleRow.addColumnDefinition(1, false); // Title takes remaining space
+    titleRow.addColumnDefinition(isMobile ? 32 : 50, true); // Edit button fixed width
+    titleRow.addRowDefinition(1);
+    copyGrid.addControl(titleRow, 0, 0);
 
     // Symbol + Class name
     const titleText = new TextBlock(`title_${key}`);
     titleText.text = `${UNIT_DESIGNATIONS[unitIndex]} ${CLASS_INFO[state.selectedClass].name}`;
     titleText.color = COLORS.accentOrange;
-    titleText.fontSize = isMobile ? 20 : 18;
+    titleText.fontSize = isMobile ? 18 : 16;
     titleText.fontFamily = "'Bebas Neue', sans-serif";
-    titleText.height = "30px";
-    titleText.paddingTop = "8px";
-    cardStack.addControl(titleText);
+    titleText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    titleText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+    titleText.paddingLeft = "5px";
+    titleRow.addControl(titleText, 0, 0);
 
-    // Description
+    // Edit button - circle on mobile, text on desktop
+    const editBtn = Button.CreateSimpleButton(`edit_${key}`, isMobile ? "✎" : "Edit");
+    editBtn.width = isMobile ? "28px" : "45px";
+    editBtn.height = isMobile ? "28px" : "26px";
+    editBtn.background = COLORS.bgButton;
+    editBtn.color = COLORS.textPrimary;
+    editBtn.cornerRadius = isMobile ? 14 : 4;
+    editBtn.fontSize = isMobile ? 14 : 11;
+    editBtn.thickness = 1;
+    editBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    editBtn.onPointerEnterObservable.add(() => {
+      editBtn.background = COLORS.bgButtonHover;
+    });
+    editBtn.onPointerOutObservable.add(() => {
+      editBtn.background = COLORS.bgButton;
+    });
+    editBtn.onPointerClickObservable.add(() => {
+      openCustomizeEditor(playerId, unitIndex);
+    });
+    titleRow.addControl(editBtn, 0, 1);
+
+    // Description - use ScrollViewer to prevent cutoff
+    const descScroll = new ScrollViewer(`descScroll_${key}`);
+    descScroll.width = "100%";
+    descScroll.height = "100%";
+    descScroll.thickness = 0;
+    descScroll.barSize = 0;
+    descScroll.paddingTop = "4px";
+    copyGrid.addControl(descScroll, 1, 0);
+
     const descText = new TextBlock(`desc_${key}`);
     descText.text = getUnitDescription(state.selectedClass, state.selectedBoost, state.selectedStyle);
     descText.color = COLORS.textSecondary;
-    descText.fontSize = isMobile ? 11 : 10;
+    descText.fontSize = isMobile ? 10 : 9;
     descText.textWrapping = true;
-    descText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-    descText.height = isMobile ? "100px" : "90px";
-    descText.paddingLeft = "10px";
-    descText.paddingRight = "10px";
-    descText.paddingTop = "5px";
-    cardStack.addControl(descText);
+    descText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    descText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    descText.resizeToFit = true;
+    descText.paddingLeft = "5px";
+    descText.paddingRight = "5px";
+    descScroll.addControl(descText);
 
-    // Customize button
-    const customizeBtn = Button.CreateSimpleButton(`customize_${key}`, "Customize");
-    customizeBtn.width = "80%";
-    customizeBtn.height = `${buttonHeight}px`;
-    customizeBtn.background = COLORS.bgButton;
-    customizeBtn.color = COLORS.textPrimary;
-    customizeBtn.cornerRadius = 6;
-    customizeBtn.fontSize = fontSize;
-    customizeBtn.onPointerEnterObservable.add(() => {
-      customizeBtn.background = COLORS.bgButtonHover;
-    });
-    customizeBtn.onPointerOutObservable.add(() => {
-      customizeBtn.background = COLORS.bgButton;
-    });
-    customizeBtn.onPointerClickObservable.add(() => {
-      openCustomizeEditor(playerId, unitIndex);
-    });
-    cardStack.addControl(customizeBtn);
+    // Right column: preview
+    const previewContainer = new Rectangle(`preview_${key}`);
+    previewContainer.width = "100%";
+    previewContainer.height = "100%";
+    previewContainer.background = COLORS.bgPreview;
+    previewContainer.cornerRadius = 8;
+    previewContainer.thickness = 0;
+    previewContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    cardGrid.addControl(previewContainer, 0, 1);
 
     // Update callback for this card
     const updateCard = (): void => {
@@ -779,7 +893,7 @@ export function createLoadoutScene(
 
     const previewCamera = new ArcRotateCamera(
       `cam_${key}`,
-      Math.PI / 2 + 0.2,
+      -Math.PI / 2 + 0.2,  // Rotated 180 degrees to face user
       Math.PI / 2.3,
       2.8,
       new Vector3(0, 0.95, 0),
@@ -951,10 +1065,6 @@ export function createLoadoutScene(
 
         result.meshes.forEach(m => {
           m.layerMask = layerMask;
-          if (m.material) {
-            const mat = m.material as PBRMaterial;
-            mat.unlit = true;
-          }
         });
 
         if (rtt.renderList) {
@@ -962,9 +1072,22 @@ export function createLoadoutScene(
           result.meshes.forEach(m => rtt.renderList!.push(m));
         }
 
+        // Add meshes to the preview light
+        const previewLight = getPreviewLightForMask(layerMask);
+        if (previewLight) {
+          result.meshes.forEach(m => {
+            if (!previewLight.includedOnlyMeshes.includes(m as any)) {
+              previewLight.includedOnlyMeshes.push(m as any);
+            }
+          });
+        }
+
         unitPreviewAnims = result.animationGroups;
         previewModelLoaded = true;
         updatePreviewAppearance();
+      }).catch((error) => {
+        console.error(`Failed to load model: ${modelPath}`, error);
+        loadingText.text = "Error loading";
       });
     };
 
@@ -1003,7 +1126,7 @@ export function createLoadoutScene(
 
   const editorPreviewCamera = new ArcRotateCamera(
     "editorPreviewCam",
-    Math.PI / 2 + 0.2,
+    -Math.PI / 2 + 0.2,  // Rotated 180 degrees to face user
     Math.PI / 2.3,
     2.8,
     new Vector3(0, 0.95, 0),
@@ -1139,6 +1262,7 @@ export function createLoadoutScene(
   editorTitle.fontSize = 20;
   editorTitle.fontFamily = "'Bebas Neue', sans-serif";
   editorTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  editorTitle.resizeToFit = true;
   headerRow.addControl(editorTitle);
 
   // Spacer to balance the back button
@@ -1523,10 +1647,6 @@ export function createLoadoutScene(
 
         result.meshes.forEach(m => {
           m.layerMask = editorLayerMask;
-          if (m.material) {
-            const mat = m.material as PBRMaterial;
-            mat.unlit = true;
-          }
         });
 
         if (editorRtt.renderList) {
@@ -1534,8 +1654,20 @@ export function createLoadoutScene(
           result.meshes.forEach(m => editorRtt.renderList!.push(m));
         }
 
+        // Add meshes to the editor preview light
+        const previewLight = getPreviewLightForMask(editorLayerMask);
+        if (previewLight) {
+          result.meshes.forEach(m => {
+            if (!previewLight.includedOnlyMeshes.includes(m as any)) {
+              previewLight.includedOnlyMeshes.push(m as any);
+            }
+          });
+        }
+
         editorPreviewAnimations = result.animationGroups;
         updateEditorPreviewAppearance();
+      }).catch((error) => {
+        console.error(`Failed to load editor model: ${modelPath}`, error);
       });
     } else {
       updateEditorPreviewAppearance();
@@ -1735,6 +1867,10 @@ export function createLoadoutScene(
   startBtn.fontFamily = "'Bebas Neue', sans-serif";
   startBtn.onPointerClickObservable.add(() => {
     syncSelectionsFromStates();
+    // Update game mode based on AI toggle
+    selections.gameMode = isP2Computer ? "local-pve" : "local-pvp";
+    selections.humanTeam = isP2Computer ? "player1" : "player1";
+    setGameMode(selections.gameMode, selections.humanTeam);
     onStartBattle(selections);
   });
   startBtn.onPointerEnterObservable.add(() => {
