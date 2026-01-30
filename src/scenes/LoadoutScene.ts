@@ -238,25 +238,6 @@ export function createLoadoutScene(
   const light = new HemisphericLight("light", new Vector3(0, 1, 0.5), scene);
   light.intensity = 1.2;
 
-  // Create preview lights for RTT rendering (one for each possible layer mask)
-  // RTT cameras have specific layer masks, so we need lights visible to those cameras
-  for (let i = 0; i < 7; i++) {
-    const previewLight = new HemisphericLight(`previewLight_${i}`, new Vector3(0, 1, 0.5), scene);
-    previewLight.intensity = 1.5;
-    previewLight.includedOnlyMeshes = [];
-    // Will be populated when models load
-  }
-  // Reference all preview lights for model loading
-  const getPreviewLightForMask = (mask: number): HemisphericLight | null => {
-    for (let i = 0; i < 7; i++) {
-      const checkMask = i < 6 ? (0x10000000 << i) : 0x20000000;
-      if (mask === checkMask) {
-        return scene.getLightByName(`previewLight_${i}`) as HemisphericLight;
-      }
-    }
-    return null;
-  };
-
   const gui = AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
   // Get game mode
@@ -602,6 +583,8 @@ export function createLoadoutScene(
     p1BorderContainer.background = "transparent";
     p1BorderContainer.paddingTop = "8px";
     p1BorderContainer.paddingBottom = "8px";
+    p1BorderContainer.paddingLeft = "8px";
+    p1BorderContainer.paddingRight = "8px";
     p1BorderContainer.adaptHeightToChildren = true;
     mainStack.addControl(p1BorderContainer);
 
@@ -618,6 +601,8 @@ export function createLoadoutScene(
     p2BorderContainer.background = "transparent";
     p2BorderContainer.paddingTop = "8px";
     p2BorderContainer.paddingBottom = "8px";
+    p2BorderContainer.paddingLeft = "8px";
+    p2BorderContainer.paddingRight = "8px";
     p2BorderContainer.adaptHeightToChildren = true;
     p2BorderContainer.isVisible = false;
     mainStack.addControl(p2BorderContainer);
@@ -745,19 +730,20 @@ export function createLoadoutScene(
       aiToggleContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
       headerGrid.addControl(aiToggleContainer, 0, 1);
 
-      const aiToggleBtn = Button.CreateSimpleButton("aiToggle", isP2Computer ? "🤖 CPU" : "👤 Human");
-      aiToggleBtn.width = "90px";
+      const aiToggleBtn = Button.CreateSimpleButton("aiToggle", isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF");
+      aiToggleBtn.width = "180px";
       aiToggleBtn.height = "28px";
       aiToggleBtn.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
-      aiToggleBtn.color = COLORS.textPrimary;
+      aiToggleBtn.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
       aiToggleBtn.cornerRadius = 4;
       aiToggleBtn.fontSize = 12;
       aiToggleBtn.onPointerClickObservable.add(() => {
         isP2Computer = !isP2Computer;
         if (aiToggleBtn.textBlock) {
-          aiToggleBtn.textBlock.text = isP2Computer ? "🤖 CPU" : "👤 Human";
+          aiToggleBtn.textBlock.text = isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF";
         }
         aiToggleBtn.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
+        aiToggleBtn.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
         // Update mobile toggle if exists
         if (mobileAiToggleText) {
           mobileAiToggleText.text = isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF";
@@ -874,27 +860,38 @@ export function createLoadoutScene(
     copyGrid.paddingBottom = "4px";
     cardGrid.addControl(copyGrid, 0, 0);
 
-    // Title row: Symbol + Class name on left, Edit button on right
+    // Title row: Symbol left, Class center, Edit right
     const titleRow = new Grid(`titleRow_${key}`);
     titleRow.width = "100%";
     titleRow.height = "100%";
-    titleRow.addColumnDefinition(1, false); // Title takes remaining space
+    titleRow.addColumnDefinition(isMobile ? 28 : 32, true); // Symbol fixed width
+    titleRow.addColumnDefinition(1, false); // Class name takes remaining space
     titleRow.addColumnDefinition(isMobile ? 32 : 50, true); // Edit button fixed width
     titleRow.addRowDefinition(1);
     copyGrid.addControl(titleRow, 0, 0);
 
-    // Symbol + Class name
-    const titleText = new TextBlock(`title_${key}`);
-    titleText.text = `${UNIT_DESIGNATIONS[unitIndex]} ${CLASS_INFO[state.selectedClass].name}`;
-    titleText.color = COLORS.accentOrange;
-    titleText.fontSize = isMobile ? 18 : 16;
-    titleText.fontFamily = "'Bebas Neue', sans-serif";
-    titleText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    titleText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-    titleText.paddingLeft = "5px";
-    titleRow.addControl(titleText, 0, 0);
+    // Symbol (left)
+    const symbolText = new TextBlock(`symbol_${key}`);
+    symbolText.text = UNIT_DESIGNATIONS[unitIndex];
+    symbolText.color = COLORS.accentOrange;
+    symbolText.fontSize = isMobile ? 20 : 18;
+    symbolText.fontFamily = "'Bebas Neue', sans-serif";
+    symbolText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    symbolText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+    symbolText.paddingLeft = "2px";
+    titleRow.addControl(symbolText, 0, 0);
 
-    // Edit button - circle on mobile, text on desktop
+    // Class name (center)
+    const classText = new TextBlock(`class_${key}`);
+    classText.text = CLASS_INFO[state.selectedClass].name;
+    classText.color = COLORS.accentOrange;
+    classText.fontSize = isMobile ? 18 : 16;
+    classText.fontFamily = "'Bebas Neue', sans-serif";
+    classText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    classText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+    titleRow.addControl(classText, 0, 1);
+
+    // Edit button (right)
     const editBtn = Button.CreateSimpleButton(`edit_${key}`, isMobile ? "✎" : "Edit");
     editBtn.width = isMobile ? "28px" : "45px";
     editBtn.height = isMobile ? "28px" : "26px";
@@ -913,7 +910,7 @@ export function createLoadoutScene(
     editBtn.onPointerClickObservable.add(() => {
       openCustomizeEditor(playerId, unitIndex);
     });
-    titleRow.addControl(editBtn, 0, 1);
+    titleRow.addControl(editBtn, 0, 2);
 
     // Description - use ScrollViewer to prevent cutoff
     const descScroll = new ScrollViewer(`descScroll_${key}`);
@@ -927,7 +924,7 @@ export function createLoadoutScene(
     const descText = new TextBlock(`desc_${key}`);
     descText.text = getUnitDescription(state.selectedClass, state.selectedBoost, state.selectedStyle);
     descText.color = COLORS.textSecondary;
-    descText.fontSize = isMobile ? 10 : 9;
+    descText.fontSize = isMobile ? 11 : isTablet ? 12 : 13;
     descText.textWrapping = true;
     descText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     descText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -949,7 +946,7 @@ export function createLoadoutScene(
     // Update callback for this card
     const updateCard = (): void => {
       const s = unitStates[key];
-      titleText.text = `${UNIT_DESIGNATIONS[unitIndex]} ${CLASS_INFO[s.selectedClass].name}`;
+      classText.text = CLASS_INFO[s.selectedClass].name;
       descText.text = getUnitDescription(s.selectedClass, s.selectedBoost, s.selectedStyle);
     };
     cardUpdateCallbacks[playerId].push(updateCard);
@@ -1207,16 +1204,6 @@ export function createLoadoutScene(
         if (rtt.renderList) {
           rtt.renderList.length = 0;
           result.meshes.forEach(m => rtt.renderList!.push(m));
-        }
-
-        // Add meshes to the preview light
-        const previewLight = getPreviewLightForMask(layerMask);
-        if (previewLight) {
-          result.meshes.forEach(m => {
-            if (!previewLight.includedOnlyMeshes.includes(m as any)) {
-              previewLight.includedOnlyMeshes.push(m as any);
-            }
-          });
         }
 
         unitPreviewAnims = result.animationGroups;
@@ -1789,16 +1776,6 @@ export function createLoadoutScene(
         if (editorRtt.renderList) {
           editorRtt.renderList.length = 0;
           result.meshes.forEach(m => editorRtt.renderList!.push(m));
-        }
-
-        // Add meshes to the editor preview light
-        const previewLight = getPreviewLightForMask(editorLayerMask);
-        if (previewLight) {
-          result.meshes.forEach(m => {
-            if (!previewLight.includedOnlyMeshes.includes(m as any)) {
-              previewLight.includedOnlyMeshes.push(m as any);
-            }
-          });
         }
 
         editorPreviewAnimations = result.animationGroups;
