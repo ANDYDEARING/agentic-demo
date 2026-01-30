@@ -720,6 +720,7 @@ export function createResponsiveOverlay(
   title.color = colors.title;
   title.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
   title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  title.height = "40px"; // Default pixel height to avoid StackPanel percentage warning
   header.addControl(title);
 
   const divider = new Rectangle("divider");
@@ -758,6 +759,9 @@ export function createResponsiveOverlay(
   footer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
   footer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
   footer.adaptWidthToChildren = true;
+  // Set initial orientation to avoid layout flicker on first render
+  const initialSize = gui.getSize();
+  footer.isVertical = !(initialSize.width > initialSize.height);
   container.addControl(footer);
 
   // Create buttons
@@ -789,7 +793,7 @@ export function createResponsiveOverlay(
       if (isShowingAlt) {
         contentText.text = config.toggle!.getAltContent();
         if (toggleButton!.textBlock) toggleButton!.textBlock.text = config.toggle!.altLabel;
-        title.text = config.toggle!.label.replace(/\s/g, ''); // Remove spaces for alt title
+        title.text = config.toggle!.label;
       } else {
         contentText.text = config.getContent();
         if (toggleButton!.textBlock) toggleButton!.textBlock.text = config.toggle!.label;
@@ -806,6 +810,8 @@ export function createResponsiveOverlay(
     if (i > 0 || toggleButton) {
       const spacer = new Rectangle(`spacer${i}`);
       spacer.thickness = 0;
+      spacer.width = "15px"; // Default pixel size to avoid StackPanel percentage warning
+      spacer.height = "8px";
       footer.addControl(spacer);
     }
 
@@ -847,7 +853,9 @@ export function createResponsiveOverlay(
     header.width = isLandscape ? "70%" : "100%";
     header.height = isLandscape ? "12%" : "12%";
     title.fontSize = baseUnit * 0.05;
-    title.height = "70%";
+    // Use pixel heights in StackPanel (not percentages) to avoid Babylon warnings
+    const headerHeight = size.height * (isLandscape ? 0.12 : 0.12) * 0.85;
+    title.height = `${Math.round(headerHeight * 0.7)}px`;
     divider.height = "2px";
 
     // Scroll area

@@ -26,6 +26,11 @@ import {
 import { MUSIC, AUDIO_VOLUMES, LOOP_BUFFER_TIME, DEBUG_SKIP_OFFSET } from "../config";
 import { CLASS_DATA } from "../types";
 
+// Module-level state (persists across orientation reloads)
+let titleMusic: HTMLAudioElement | null = null;
+let hasFadedIn = false;
+let wasOverlayOpen = false;
+
 // Ember particle for floating fire effect
 interface Ember {
   element: Rectangle;
@@ -49,24 +54,35 @@ export function createTitleScene(
   const bg = SCENE_BACKGROUNDS.title;
   scene.clearColor = new Color4(bg.r, bg.g, bg.b, bg.a);
 
-  // Background music - using centralized audio config
-  const music = createMusicPlayer(MUSIC.title, AUDIO_VOLUMES.music, true, LOOP_BUFFER_TIME);
-  music.play();
+  // Background music - using centralized audio config (persists across orientation reloads)
+  if (!titleMusic) {
+    titleMusic = createMusicPlayer(MUSIC.title, AUDIO_VOLUMES.music, true, LOOP_BUFFER_TIME);
+    titleMusic.play();
+  }
 
   // Press S to skip to near end (to test loop behavior)
   const skipHandler = (e: KeyboardEvent) => {
     if (e.key === "s" || e.key === "S") {
-      if (music.duration) {
-        music.currentTime = Math.max(0, music.duration - DEBUG_SKIP_OFFSET);
+      if (titleMusic?.duration) {
+        titleMusic.currentTime = Math.max(0, titleMusic.duration - DEBUG_SKIP_OFFSET);
       }
     }
   };
   window.addEventListener("keydown", skipHandler);
 
+  // Track if this is an orientation reload (set by resize handler before navigating)
+  let isOrientationReload = false;
+
   scene.onDisposeObservable.add(() => {
-    music.pause();
-    music.src = "";
     window.removeEventListener("keydown", skipHandler);
+    // Only stop music and reset state when actually leaving the title screen (not orientation reloads)
+    if (!isOrientationReload && titleMusic) {
+      titleMusic.pause();
+      titleMusic.src = "";
+      titleMusic = null;
+      hasFadedIn = false;
+      wasOverlayOpen = false;
+    }
   });
 
   new FreeCamera("camera", Vector3.Zero(), scene);
@@ -78,6 +94,42 @@ export function createTitleScene(
   // Also detect landscape phones (short height) to use compact scaling
   const screenWidth = engine.getRenderWidth();
   const screenHeight = engine.getRenderHeight();
+
+  // Listen for orientation/resize changes and reload scene
+  const initialOrientation = screenWidth > screenHeight ? "landscape" : "portrait";
+  let reloadPending = false;
+  // Reference to overlay for saving state before reload (set later)
+  let overlayRef: { isVisible: () => boolean } | null = null;
+
+  const handleResize = () => {
+    if (reloadPending) return;
+
+    const newWidth = engine.getRenderWidth();
+    const newHeight = engine.getRenderHeight();
+    const newOrientation = newWidth > newHeight ? "landscape" : "portrait";
+
+    const orientationChanged = newOrientation !== initialOrientation;
+    const significantResize = Math.abs(newWidth - screenWidth) > 100 || Math.abs(newHeight - screenHeight) > 100;
+
+    if (orientationChanged || significantResize) {
+      reloadPending = true;
+      isOrientationReload = true;
+      // Save overlay state before reload
+      wasOverlayOpen = overlayRef?.isVisible() ?? false;
+      setTimeout(() => {
+        navigateTo("title");
+      }, 100);
+    }
+  };
+
+  window.addEventListener("resize", handleResize);
+  window.addEventListener("orientationchange", handleResize);
+
+  scene.onDisposeObservable.add(() => {
+    window.removeEventListener("resize", handleResize);
+    window.removeEventListener("orientationchange", handleResize);
+  });
+
   const isLandscapePhone = screenHeight < 500 && screenWidth < 1024;
   const isTablet = !isLandscapePhone && screenWidth >= 600 && screenWidth < 1024;
   const isDesktop = screenWidth >= 1024;
@@ -196,6 +248,10 @@ export function createTitleScene(
       for (const btn of modeButtons) {
         btn.alpha = ease;
       }
+      // Mark fade-in as complete for future reloads
+      if (fadeInAlpha >= 1) {
+        hasFadedIn = true;
+      }
     }
 
     // Subtle title glow pulse (only after fade-in started)
@@ -214,20 +270,21 @@ export function createTitleScene(
   gui.addControl(panel);
 
   // Fade-in state - using centralized timing constants
-  let fadeInStarted = false;
-  let fadeInAlpha = 0;
+  // Skip fade-in if we've already done it (orientation reload)
+  let fadeInStarted = hasFadedIn;
+  let fadeInAlpha = hasFadedIn ? 1 : 0;
   const fadeInDuration = TITLE_FADE_IN_DURATION;
   const fadeInDelay = TITLE_FADE_IN_DELAY;
 
   // Subtitle line - smaller, above main title
   const titleLine1 = new TextBlock();
   titleLine1.text = "T H E   S U N S E T   G A M B I T";
-  titleLine1.color = "rgba(232, 196, 160, 0)"; // Start invisible
+  titleLine1.color = hasFadedIn ? "rgba(232, 196, 160, 1)" : "rgba(232, 196, 160, 0)";
   titleLine1.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
   titleLine1.fontWeight = "400";
   titleLine1.fontSize = subtitleFontSize;
   titleLine1.height = subtitleHeight;
-  titleLine1.shadowColor = "rgba(255, 100, 20, 0)";
+  titleLine1.shadowColor = hasFadedIn ? "rgba(255, 100, 20, 0.3)" : "rgba(255, 100, 20, 0)";
   titleLine1.shadowBlur = 15 * titleScale;
   titleLine1.shadowOffsetY = 1 * titleScale;
   panel.addControl(titleLine1);
@@ -235,12 +292,12 @@ export function createTitleScene(
   // Main title - BIG, fills width on mobile
   const titleLine2 = new TextBlock();
   titleLine2.text = "C R U C I B L E";
-  titleLine2.color = "rgba(255, 179, 102, 0)"; // Start invisible
+  titleLine2.color = hasFadedIn ? "rgba(255, 179, 102, 1)" : "rgba(255, 179, 102, 0)";
   titleLine2.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
   titleLine2.fontWeight = "400";
   titleLine2.fontSize = mainTitleFontSize;
   titleLine2.height = mainTitleHeight;
-  titleLine2.shadowColor = "rgba(255, 80, 0, 0)";
+  titleLine2.shadowColor = hasFadedIn ? "rgba(255, 80, 0, 0.5)" : "rgba(255, 80, 0, 0)";
   titleLine2.shadowBlur = 25 * titleScale;
   titleLine2.shadowOffsetY = 3 * titleScale;
   panel.addControl(titleLine2);
@@ -250,13 +307,13 @@ export function createTitleScene(
   divider.width = dividerWidthPercent;
   divider.height = `${Math.max(2, Math.round(2 * titleScale))}px`;
   divider.thickness = 0;
-  divider.background = "rgba(255, 150, 80, 0)"; // Start invisible
+  divider.background = hasFadedIn ? "rgba(255, 150, 80, 0.4)" : "rgba(255, 150, 80, 0)";
   panel.addControl(divider);
 
   // Version label
   const versionLabel = new TextBlock();
   versionLabel.text = "[ DEMO - Early - NOT BALANCED ] v0.2";
-  versionLabel.color = "rgba(180, 180, 180, 0)";
+  versionLabel.color = hasFadedIn ? "rgba(180, 180, 180, 1)" : "rgba(180, 180, 180, 0)";
   versionLabel.fontFamily = "'Exo 2', sans-serif";
   versionLabel.fontSize = 11;
   versionLabel.height = "30px";
@@ -298,7 +355,7 @@ export function createTitleScene(
     button.thickness = 1;
     button.color = TITLE_TEXT_COLORS.buttonText;
     button.hoverCursor = "pointer";
-    button.alpha = 0; // Start invisible, fade in with title
+    button.alpha = hasFadedIn ? 1 : 0; // Start visible if already faded in
 
     // Style the text block
     if (button.textBlock) {
@@ -354,7 +411,7 @@ export function createTitleScene(
   howToButton.thickness = 1;
   howToButton.color = "#aaaacc";
   howToButton.hoverCursor = "pointer";
-  howToButton.alpha = 0;
+  howToButton.alpha = hasFadedIn ? 1 : 0;
 
   if (howToButton.textBlock) {
     howToButton.textBlock.color = "#aaaacc";
@@ -493,6 +550,12 @@ LINE OF SIGHT:
       }
     }
   });
+
+  // Set overlay reference for resize handler and restore state if needed
+  overlayRef = howToOverlay;
+  if (wasOverlayOpen) {
+    howToOverlay.show();
+  }
 
   // === CREATE EMBERS (after panel so they render on top) ===
   const numEmbers = 30;
