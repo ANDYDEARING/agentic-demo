@@ -6,7 +6,7 @@
  */
 
 import { Color3, Color4, Scene, RenderTargetTexture, ArcRotateCamera, Vector3, AbstractMesh, Observer } from "@babylonjs/core";
-import { ScrollViewer, StackPanel, Rectangle, Image, TextBlock, Control } from "@babylonjs/gui";
+import { AdvancedDynamicTexture, ScrollViewer, StackPanel, Rectangle, Image, TextBlock, Control, Button } from "@babylonjs/gui";
 
 // =============================================================================
 // COLOR CONVERSION
@@ -202,16 +202,19 @@ export function createMusicPlayer(
   loopBuffer: number = 0.5
 ): HTMLAudioElement {
   const audio = new Audio(src);
-  audio.loop = loop;
   audio.volume = volume;
 
-  // Manual loop handling for seamless playback
+  // Use manual loop handling for seamless playback (avoids gap at end)
+  // Don't set audio.loop = true when using manual looping to avoid double-play on mobile
   if (loop && loopBuffer > 0) {
+    audio.loop = false; // We handle looping manually
     audio.addEventListener("timeupdate", () => {
       if (audio.duration && audio.currentTime >= audio.duration - loopBuffer) {
         audio.currentTime = 0;
       }
     });
+  } else {
+    audio.loop = loop;
   }
 
   return audio;
@@ -630,5 +633,289 @@ export function createRTTPreview(
       rtt.dispose();
       camera.dispose();
     }
+  };
+}
+
+// =============================================================================
+// RESPONSIVE OVERLAY
+// =============================================================================
+
+export interface OverlayButton {
+  label: string;
+  action: () => void;
+  style?: 'primary' | 'secondary';
+}
+
+export interface OverlayToggle {
+  label: string;
+  altLabel: string;
+  getAltContent: () => string;
+}
+
+export interface ResponsiveOverlayConfig {
+  title: string;
+  getContent: () => string;
+  buttons: OverlayButton[];
+  toggle?: OverlayToggle;
+  colors?: {
+    title?: string;
+    text?: string;
+    primary?: string;
+    secondary?: string;
+  };
+}
+
+export interface ResponsiveOverlay {
+  show: () => void;
+  hide: () => void;
+  isVisible: () => boolean;
+}
+
+/**
+ * Create a responsive modal overlay with automatic layout adaptation.
+ * Uses ratio-based sizing - no resize handler needed.
+ *
+ * @param gui - The AdvancedDynamicTexture to add the overlay to
+ * @param config - Overlay configuration
+ * @returns Control object with show/hide methods
+ */
+export function createResponsiveOverlay(
+  gui: AdvancedDynamicTexture,
+  config: ResponsiveOverlayConfig
+): ResponsiveOverlay {
+  const colors = {
+    title: config.colors?.title ?? "#ff9966",
+    text: config.colors?.text ?? "#cccccc",
+    primary: config.colors?.primary ?? "#ff9966",
+    secondary: config.colors?.secondary ?? "#66aaff",
+  };
+
+  let isShowingAlt = false;
+  let scrollCleanup: TouchScrollCleanup | null = null;
+
+  // Create all controls once
+  const overlay = new Rectangle("overlay");
+  overlay.width = "100%";
+  overlay.height = "100%";
+  overlay.background = "rgba(0, 0, 0, 0.95)";
+  overlay.thickness = 0;
+  overlay.zIndex = 100;
+  overlay.isVisible = false;
+
+  const container = new Rectangle("container");
+  container.thickness = 0;
+  container.background = "transparent";
+  container.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+  container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  overlay.addControl(container);
+
+  // Header
+  const header = new StackPanel("header");
+  header.isVertical = true;
+  header.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+  header.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  container.addControl(header);
+
+  const title = new TextBlock("title", config.title);
+  title.color = colors.title;
+  title.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
+  title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  header.addControl(title);
+
+  const divider = new Rectangle("divider");
+  divider.width = "80%";
+  divider.background = "rgba(255, 150, 80, 0.4)";
+  divider.thickness = 0;
+  header.addControl(divider);
+
+  // Scrollable content
+  const scrollViewer = new ScrollViewer("scroll");
+  scrollViewer.thickness = 0;
+  scrollViewer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+  scrollViewer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  container.addControl(scrollViewer);
+
+  const contentStack = new StackPanel("contentStack");
+  contentStack.width = "100%";
+  contentStack.isVertical = true;
+  contentStack.paddingTop = "10px";
+  contentStack.paddingBottom = "20px";
+  scrollViewer.addControl(contentStack);
+
+  const contentText = new TextBlock("content");
+  contentText.text = config.getContent();
+  contentText.color = colors.text;
+  contentText.fontFamily = "'Exo 2', sans-serif";
+  contentText.textWrapping = true;
+  contentText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+  contentText.resizeToFit = true;
+  contentText.paddingLeft = "5%";
+  contentText.paddingRight = "5%";
+  contentStack.addControl(contentText);
+
+  // Footer with buttons
+  const footer = new StackPanel("footer");
+  footer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+  footer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  footer.adaptWidthToChildren = true;
+  container.addControl(footer);
+
+  // Create buttons
+  const buttonRefs: Button[] = [];
+
+  // Toggle button (if configured)
+  let toggleButton: Button | null = null;
+  if (config.toggle) {
+    toggleButton = Button.CreateSimpleButton("toggle", config.toggle.label);
+    toggleButton.background = "rgba(40, 50, 60, 0.8)";
+    toggleButton.cornerRadius = 4;
+    toggleButton.thickness = 1;
+    toggleButton.color = colors.secondary;
+    toggleButton.hoverCursor = "pointer";
+    if (toggleButton.textBlock) {
+      toggleButton.textBlock.color = colors.secondary;
+      toggleButton.textBlock.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
+    }
+    toggleButton.onPointerEnterObservable.add(() => {
+      toggleButton!.background = "rgba(60, 80, 100, 0.9)";
+      if (toggleButton!.textBlock) toggleButton!.textBlock.color = "#ffffff";
+    });
+    toggleButton.onPointerOutObservable.add(() => {
+      toggleButton!.background = "rgba(40, 50, 60, 0.8)";
+      if (toggleButton!.textBlock) toggleButton!.textBlock.color = colors.secondary;
+    });
+    toggleButton.onPointerClickObservable.add(() => {
+      isShowingAlt = !isShowingAlt;
+      if (isShowingAlt) {
+        contentText.text = config.toggle!.getAltContent();
+        if (toggleButton!.textBlock) toggleButton!.textBlock.text = config.toggle!.altLabel;
+        title.text = config.toggle!.label.replace(/\s/g, ''); // Remove spaces for alt title
+      } else {
+        contentText.text = config.getContent();
+        if (toggleButton!.textBlock) toggleButton!.textBlock.text = config.toggle!.label;
+        title.text = config.title;
+      }
+      scrollViewer.verticalBar.value = 0;
+    });
+    footer.addControl(toggleButton);
+    buttonRefs.push(toggleButton);
+  }
+
+  // Regular buttons
+  config.buttons.forEach((btnConfig, i) => {
+    if (i > 0 || toggleButton) {
+      const spacer = new Rectangle(`spacer${i}`);
+      spacer.thickness = 0;
+      footer.addControl(spacer);
+    }
+
+    const btn = Button.CreateSimpleButton(`btn${i}`, btnConfig.label);
+    const isPrimary = btnConfig.style !== 'secondary';
+    btn.background = isPrimary ? "rgba(80, 40, 30, 0.8)" : "rgba(40, 50, 60, 0.8)";
+    btn.cornerRadius = 4;
+    btn.thickness = 1;
+    btn.color = isPrimary ? colors.primary : colors.secondary;
+    btn.hoverCursor = "pointer";
+    if (btn.textBlock) {
+      btn.textBlock.color = isPrimary ? colors.primary : colors.secondary;
+      btn.textBlock.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
+    }
+    btn.onPointerEnterObservable.add(() => {
+      btn.background = isPrimary ? "rgba(120, 60, 40, 0.9)" : "rgba(60, 80, 100, 0.9)";
+      if (btn.textBlock) btn.textBlock.color = "#ffffff";
+    });
+    btn.onPointerOutObservable.add(() => {
+      btn.background = isPrimary ? "rgba(80, 40, 30, 0.8)" : "rgba(40, 50, 60, 0.8)";
+      if (btn.textBlock) btn.textBlock.color = isPrimary ? colors.primary : colors.secondary;
+    });
+    btn.onPointerClickObservable.add(btnConfig.action);
+    footer.addControl(btn);
+    buttonRefs.push(btn);
+  });
+
+  // Layout update function - called on show and resize
+  function updateLayout() {
+    const size = gui.getSize();
+    const isLandscape = size.width > size.height;
+    const baseUnit = Math.min(size.width, size.height);
+
+    // Container sizing
+    container.width = isLandscape ? "60%" : "90%";
+    container.height = isLandscape ? "85%" : "80%";
+
+    // Header
+    header.width = isLandscape ? "70%" : "100%";
+    header.height = isLandscape ? "12%" : "12%";
+    title.fontSize = baseUnit * 0.05;
+    title.height = "70%";
+    divider.height = "2px";
+
+    // Scroll area
+    scrollViewer.width = isLandscape ? "70%" : "100%";
+    scrollViewer.height = isLandscape ? "65%" : "68%";
+    scrollViewer.top = isLandscape ? "12%" : "12%";
+    contentText.fontSize = baseUnit * 0.028;
+
+    // Footer
+    footer.height = isLandscape ? "15%" : "15%";
+    footer.isVertical = !isLandscape;
+    footer.paddingBottom = "2%";
+
+    // Button sizing
+    const btnWidth = isLandscape ? baseUnit * 0.25 : baseUnit * 0.4;
+    const btnHeight = baseUnit * 0.08;
+    const btnFontSize = baseUnit * 0.03;
+    const spacerSize = isLandscape ? "15px" : "8px";
+
+    buttonRefs.forEach(btn => {
+      btn.width = `${btnWidth}px`;
+      btn.height = `${btnHeight}px`;
+      if (btn.textBlock) btn.textBlock.fontSize = btnFontSize;
+    });
+
+    // Update spacers
+    footer.children.forEach(child => {
+      if (child.name?.startsWith("spacer")) {
+        (child as Rectangle).width = isLandscape ? spacerSize : "100%";
+        (child as Rectangle).height = isLandscape ? "100%" : spacerSize;
+      }
+    });
+  }
+
+  // Resize observer
+  let lastWidth = 0;
+  let lastHeight = 0;
+  gui.onBeginRenderObservable.add(() => {
+    if (!overlay.isVisible) return;
+    const size = gui.getSize();
+    if (size.width !== lastWidth || size.height !== lastHeight) {
+      lastWidth = size.width;
+      lastHeight = size.height;
+      updateLayout();
+    }
+  });
+
+  gui.addControl(overlay);
+
+  return {
+    show: () => {
+      isShowingAlt = false;
+      contentText.text = config.getContent();
+      title.text = config.title;
+      if (toggleButton?.textBlock && config.toggle) {
+        toggleButton.textBlock.text = config.toggle.label;
+      }
+      overlay.isVisible = true;
+      updateLayout();
+      scrollCleanup = enableTouchScroll(scrollViewer, contentStack);
+    },
+    hide: () => {
+      overlay.isVisible = false;
+      if (scrollCleanup) {
+        scrollCleanup.dispose();
+        scrollCleanup = null;
+      }
+    },
+    isVisible: () => overlay.isVisible,
   };
 }

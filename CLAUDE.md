@@ -6,6 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A tactical RPG prototype (FFT/Front Mission inspired) built to learn agentic AI workflows. Core philosophy: loadout building should be as engaging as battle itself.
 
+## Coding Style
+
+- **Elegance**: Short, robust, clever, small solutions. No bloat.
+- **Responsiveness**: Use ratios, not pixels. Layouts must adapt.
+- **Reusability**: Extract utilities early. Don't duplicate.
+- **Organization**: Reference constants/configs. Never hardcode values.
+- **Communication**: Before diving into a rabbit hole that breaks these rules, stop and strategize with the user.
+
 ## Commands
 
 ```bash

@@ -5,10 +5,10 @@ import {
   Vector3,
   Color4,
 } from "@babylonjs/core";
-import { AdvancedDynamicTexture, TextBlock, StackPanel, Rectangle, Control, Button, ScrollViewer, Grid } from "@babylonjs/gui";
+import { AdvancedDynamicTexture, TextBlock, StackPanel, Rectangle, Control, Button } from "@babylonjs/gui";
 import type { SceneName, GameMode } from "../types";
 import { setGameMode } from "../main";
-import { enableTouchScroll, TouchScrollCleanup } from "../utils";
+import { createMusicPlayer, createResponsiveOverlay } from "../utils";
 import {
   SCENE_BACKGROUNDS,
   TITLE_HEAT_COLORS,
@@ -25,7 +25,6 @@ import {
 } from "../config";
 import { MUSIC, AUDIO_VOLUMES, LOOP_BUFFER_TIME, DEBUG_SKIP_OFFSET } from "../config";
 import { CLASS_DATA } from "../types";
-import { createMusicPlayer } from "../utils";
 
 // Ember particle for floating fire effect
 interface Ember {
@@ -382,350 +381,16 @@ export function createTitleScene(
   });
 
   howToButton.onPointerClickObservable.add(() => {
-    showHowToOverlay();
+    howToOverlay.show();
   });
 
   panel.addControl(howToButton);
   modeButtons.push(howToButton);
 
   // === HOW TO OVERLAY ===
-  let howToOverlay: Rectangle | null = null;
-  let isShowingNerdSection = false;
-
-  // Touch scroll cleanup for How To overlay
-  let howToScrollCleanup: TouchScrollCleanup | null = null;
-
-  function showHowToOverlay() {
-    if (howToOverlay) return;
-
-    // Create dark overlay background
-    howToOverlay = new Rectangle("howToOverlay");
-    howToOverlay.width = "100%";
-    howToOverlay.height = "100%";
-    howToOverlay.background = "rgba(0, 0, 0, 0.95)";
-    howToOverlay.thickness = 0;
-    howToOverlay.zIndex = 100;
-    gui.addControl(howToOverlay);
-
-    // Main container
-    const mainContainer = new Rectangle("mainContainer");
-    mainContainer.width = isDesktop ? "600px" : isTablet ? "85%" : "95%";
-    mainContainer.height = isLandscapePhone ? "90%" : "85%";
-    mainContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-    mainContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-    mainContainer.thickness = 0;
-    mainContainer.background = "transparent";
-    howToOverlay.addControl(mainContainer);
-
-    // Shared variables for buttons/text that need to be accessed in callbacks
-    let title: TextBlock;
-    let instructionsText: TextBlock;
-    let scrollViewer: ScrollViewer;
-    let nerdButton: Button;
-
-    // Shared close button reference for click handler
-    let closeButton: Button;
-
-    if (isLandscapePhone) {
-      // === LANDSCAPE LAYOUT: Same structure, two-column content ===
-
-      // Header (fixed) - same as portrait
-      const headerPanel = new StackPanel("headerPanel");
-      headerPanel.width = "100%";
-      headerPanel.height = "50px";
-      headerPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-      mainContainer.addControl(headerPanel);
-
-      title = new TextBlock("howToTitle");
-      title.text = "Q U I C K   H O W   T O";
-      title.color = "#ff9966";
-      title.fontSize = Math.round(24 * buttonScale);
-      title.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
-      title.height = "35px";
-      title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-      headerPanel.addControl(title);
-
-      const dividerTop = new Rectangle("dividerTop");
-      dividerTop.width = "80%";
-      dividerTop.height = "2px";
-      dividerTop.background = "rgba(255, 150, 80, 0.4)";
-      dividerTop.thickness = 0;
-      headerPanel.addControl(dividerTop);
-
-      // Scrollable content area - TWO COLUMNS
-      scrollViewer = new ScrollViewer("howToScroll");
-      scrollViewer.width = "100%";
-      scrollViewer.height = "60%";
-      scrollViewer.top = "50px";
-      scrollViewer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-      scrollViewer.thickness = 0;
-      scrollViewer.wheelPrecision = 50;
-      mainContainer.addControl(scrollViewer);
-
-      const contentGrid = new Grid("contentGrid");
-      contentGrid.width = "100%";
-      contentGrid.addColumnDefinition(0.5);
-      contentGrid.addColumnDefinition(0.5);
-      contentGrid.addRowDefinition(1);
-      scrollViewer.addControl(contentGrid);
-
-      // Left column content
-      const leftStack = new StackPanel("leftStack");
-      leftStack.width = "100%";
-      leftStack.isVertical = true;
-      leftStack.paddingTop = "10px";
-      leftStack.paddingBottom = "20px";
-      contentGrid.addControl(leftStack, 0, 0);
-
-      const leftText = new TextBlock("instructionsLeft");
-      leftText.text = getInstructionsTextLeft();
-      leftText.color = "#cccccc";
-      leftText.fontSize = 11;
-      leftText.fontFamily = "'Exo 2', sans-serif";
-      leftText.textWrapping = true;
-      leftText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-      leftText.resizeToFit = true;
-      leftText.paddingLeft = "10px";
-      leftText.paddingRight = "5px";
-      leftStack.addControl(leftText);
-
-      // Right column content
-      const rightStack = new StackPanel("rightStack");
-      rightStack.width = "100%";
-      rightStack.isVertical = true;
-      rightStack.paddingTop = "10px";
-      rightStack.paddingBottom = "20px";
-      contentGrid.addControl(rightStack, 0, 1);
-
-      const rightText = new TextBlock("instructionsRight");
-      rightText.text = getInstructionsTextRight();
-      rightText.color = "#cccccc";
-      rightText.fontSize = 11;
-      rightText.fontFamily = "'Exo 2', sans-serif";
-      rightText.textWrapping = true;
-      rightText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-      rightText.resizeToFit = true;
-      rightText.paddingLeft = "5px";
-      rightText.paddingRight = "10px";
-      rightStack.addControl(rightText);
-
-      // Store references for the nerd toggle (we'll update both columns)
-      instructionsText = leftText;
-      (instructionsText as any)._rightText = rightText;
-
-      howToScrollCleanup = enableTouchScroll(scrollViewer, leftStack);
-
-      // Footer (fixed at bottom) - same as portrait
-      const footerPanel = new StackPanel("footerPanel");
-      footerPanel.width = "100%";
-      footerPanel.height = "70px";
-      footerPanel.isVertical = true;
-      footerPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-      footerPanel.paddingTop = "10px";
-      mainContainer.addControl(footerPanel);
-
-      nerdButton = Button.CreateSimpleButton("forNerds", "F O R   N E R D S");
-      nerdButton.width = "180px";
-      nerdButton.height = "32px";
-      nerdButton.background = "rgba(40, 50, 60, 0.8)";
-      nerdButton.cornerRadius = 4;
-      nerdButton.thickness = 1;
-      nerdButton.color = "#66aaff";
-      nerdButton.hoverCursor = "pointer";
-      if (nerdButton.textBlock) {
-        nerdButton.textBlock.color = "#66aaff";
-        nerdButton.textBlock.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
-        nerdButton.textBlock.fontSize = 14;
-      }
-      footerPanel.addControl(nerdButton);
-
-      const spacer = new TextBlock();
-      spacer.height = "6px";
-      spacer.text = "";
-      footerPanel.addControl(spacer);
-
-      closeButton = Button.CreateSimpleButton("closeHowTo", "C L O S E");
-      closeButton.width = "180px";
-      closeButton.height = "32px";
-      closeButton.background = "rgba(80, 40, 30, 0.8)";
-      closeButton.cornerRadius = 4;
-      closeButton.thickness = 1;
-      closeButton.color = "#ff9966";
-      closeButton.hoverCursor = "pointer";
-      if (closeButton.textBlock) {
-        closeButton.textBlock.color = "#ff9966";
-        closeButton.textBlock.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
-        closeButton.textBlock.fontSize = 14;
-      }
-      footerPanel.addControl(closeButton);
-
-    } else {
-      // === PORTRAIT LAYOUT: Single column ===
-
-      // Header (fixed)
-      const headerPanel = new StackPanel("headerPanel");
-      headerPanel.width = "100%";
-      headerPanel.height = "70px";
-      headerPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-      mainContainer.addControl(headerPanel);
-
-      title = new TextBlock("howToTitle");
-      title.text = "Q U I C K   H O W   T O";
-      title.color = "#ff9966";
-      title.fontSize = Math.round(28 * buttonScale);
-      title.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
-      title.height = "45px";
-      title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-      headerPanel.addControl(title);
-
-      const dividerTop = new Rectangle("dividerTop");
-      dividerTop.width = "80%";
-      dividerTop.height = "2px";
-      dividerTop.background = "rgba(255, 150, 80, 0.4)";
-      dividerTop.thickness = 0;
-      headerPanel.addControl(dividerTop);
-
-      // Scrollable content area
-      scrollViewer = new ScrollViewer("howToScroll");
-      scrollViewer.width = "100%";
-      scrollViewer.height = "65%";
-      scrollViewer.top = "70px";
-      scrollViewer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-      scrollViewer.thickness = 0;
-      scrollViewer.wheelPrecision = 50;
-      mainContainer.addControl(scrollViewer);
-
-      const contentStack = new StackPanel("contentStack");
-      contentStack.width = "100%";
-      contentStack.isVertical = true;
-      contentStack.paddingTop = "10px";
-      contentStack.paddingBottom = "20px";
-      scrollViewer.addControl(contentStack);
-
-      howToScrollCleanup = enableTouchScroll(scrollViewer, contentStack);
-
-      instructionsText = new TextBlock("instructions");
-      instructionsText.text = getInstructionsText();
-      instructionsText.color = "#cccccc";
-      instructionsText.fontSize = 13;
-      instructionsText.fontFamily = "'Exo 2', sans-serif";
-      instructionsText.textWrapping = true;
-      instructionsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-      instructionsText.resizeToFit = true;
-      instructionsText.paddingLeft = "15px";
-      instructionsText.paddingRight = "15px";
-      contentStack.addControl(instructionsText);
-
-      // Footer (fixed at bottom)
-      const footerPanel = new StackPanel("footerPanel");
-      footerPanel.width = "100%";
-      footerPanel.height = "90px";
-      footerPanel.isVertical = true;
-      footerPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-      footerPanel.paddingTop = "10px";
-      mainContainer.addControl(footerPanel);
-
-      nerdButton = Button.CreateSimpleButton("forNerds", "F O R   N E R D S");
-      nerdButton.width = "180px";
-      nerdButton.height = "36px";
-      nerdButton.background = "rgba(40, 50, 60, 0.8)";
-      nerdButton.cornerRadius = 4;
-      nerdButton.thickness = 1;
-      nerdButton.color = "#66aaff";
-      nerdButton.hoverCursor = "pointer";
-      if (nerdButton.textBlock) {
-        nerdButton.textBlock.color = "#66aaff";
-        nerdButton.textBlock.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
-        nerdButton.textBlock.fontSize = 16;
-      }
-      footerPanel.addControl(nerdButton);
-
-      const spacer = new TextBlock();
-      spacer.height = "8px";
-      spacer.text = "";
-      footerPanel.addControl(spacer);
-
-      closeButton = Button.CreateSimpleButton("closeHowTo", "C L O S E");
-      closeButton.width = "180px";
-      closeButton.height = "36px";
-      closeButton.background = "rgba(80, 40, 30, 0.8)";
-      closeButton.cornerRadius = 4;
-      closeButton.thickness = 1;
-      closeButton.color = "#ff9966";
-      closeButton.hoverCursor = "pointer";
-      if (closeButton.textBlock) {
-        closeButton.textBlock.color = "#ff9966";
-        closeButton.textBlock.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
-        closeButton.textBlock.fontSize = 16;
-      }
-      footerPanel.addControl(closeButton);
-    }
-
-    // Shared button hover effects
-    nerdButton.onPointerEnterObservable.add(() => {
-      nerdButton.background = "rgba(60, 80, 100, 0.9)";
-      if (nerdButton.textBlock) nerdButton.textBlock.color = "#ffffff";
-    });
-    nerdButton.onPointerOutObservable.add(() => {
-      nerdButton.background = "rgba(40, 50, 60, 0.8)";
-      if (nerdButton.textBlock) nerdButton.textBlock.color = "#66aaff";
-    });
-
-    closeButton.onPointerEnterObservable.add(() => {
-      closeButton.background = "rgba(120, 60, 40, 0.9)";
-      if (closeButton.textBlock) closeButton.textBlock.color = "#ffffff";
-    });
-    closeButton.onPointerOutObservable.add(() => {
-      closeButton.background = "rgba(80, 40, 30, 0.8)";
-      if (closeButton.textBlock) closeButton.textBlock.color = "#ff9966";
-    });
-
-    closeButton.onPointerClickObservable.add(() => hideHowToOverlay());
-
-    // Nerd button click handler (shared)
-    nerdButton.onPointerClickObservable.add(() => {
-      isShowingNerdSection = !isShowingNerdSection;
-      if (isShowingNerdSection) {
-        if (isLandscapePhone) {
-          instructionsText.text = getNerdTextLeft();
-          const rightText = (instructionsText as any)._rightText as TextBlock;
-          if (rightText) rightText.text = getNerdTextRight();
-        } else {
-          instructionsText.text = getNerdText();
-        }
-        if (nerdButton.textBlock) nerdButton.textBlock.text = "B A C K";
-        title.text = "F O R   N E R D S";
-      } else {
-        if (isLandscapePhone) {
-          instructionsText.text = getInstructionsTextLeft();
-          const rightText = (instructionsText as any)._rightText as TextBlock;
-          if (rightText) rightText.text = getInstructionsTextRight();
-        } else {
-          instructionsText.text = getInstructionsText();
-        }
-        if (nerdButton.textBlock) nerdButton.textBlock.text = "F O R   N E R D S";
-        title.text = "Q U I C K   H O W   T O";
-      }
-      scrollViewer.verticalBar.value = 0;
-    });
-  }
-
-  function hideHowToOverlay() {
-    if (howToOverlay) {
-      gui.removeControl(howToOverlay);
-      howToOverlay.dispose();
-      howToOverlay = null;
-      isShowingNerdSection = false;
-    }
-    // Clean up touch scroll
-    if (howToScrollCleanup) {
-      howToScrollCleanup.dispose();
-      howToScrollCleanup = null;
-    }
-  }
-
-  function getInstructionsText(): string {
-    return `GOAL: Eliminate all enemy units.
+  const howToOverlay = createResponsiveOverlay(gui, {
+    title: "Q U I C K   H O W   T O",
+    getContent: () => `GOAL: Eliminate all enemy units.
 
 YOUR TURN: Each unit gets 2 actions. Mix and match:
   - Move (up to 3 tiles)
@@ -750,104 +415,21 @@ TIPS:
   - Ending turn early with unused actions gives a speed bonus
   - Ranged units should stay back; melee units close the gap
   - Medics heal better when safe behind allies
-  - Cover triggers when enemies act in watched tiles`;
-  }
+  - Cover triggers when enemies act in watched tiles`,
+    buttons: [
+      { label: "C L O S E", action: () => howToOverlay.hide(), style: 'primary' }
+    ],
+    toggle: {
+      label: "F O R   N E R D S",
+      altLabel: "B A C K",
+      getAltContent: () => {
+        const soldier = CLASS_DATA.soldier;
+        const operator = CLASS_DATA.operator;
+        const medic = CLASS_DATA.medic;
+        const boostPct = Math.round(BOOST_MULTIPLIER * 100);
+        const meleeMultiplier = MELEE_DAMAGE_MULTIPLIER;
 
-  // Split content for landscape two-column layout
-  function getInstructionsTextLeft(): string {
-    return `GOAL: Eliminate all enemy units.
-
-YOUR TURN: Each unit gets 2 actions:
-  - Move (up to 3 tiles)
-  - Attack (melee/ranged)
-  - Use ability (class-specific)
-
-WEAPONS:
-  - Melee: High damage, adjacent
-  - Ranged: Lower damage, LOS
-
-CLASSES:
-  - Soldier: COVER watches tiles
-  - Operator: CONCEAL blocks hit
-  - Medic: HEAL self/allies`;
-  }
-
-  function getInstructionsTextRight(): string {
-    return `BOOSTS (pick one per unit):
-  - Tough: +25% HP
-  - Deadly: +25% Damage
-  - Quick: +25% Speed
-
-TIPS:
-  - End turn early = speed bonus
-  - Ranged stay back
-  - Melee close the gap
-  - Medics behind allies
-  - Cover triggers on enemy action`;
-  }
-
-  function getNerdTextLeft(): string {
-    const soldier = CLASS_DATA.soldier;
-    const operator = CLASS_DATA.operator;
-    const medic = CLASS_DATA.medic;
-    const boostPct = Math.round(BOOST_MULTIPLIER * 100);
-    const meleeMultiplier = MELEE_DAMAGE_MULTIPLIER;
-
-    return `GRID: ${GRID_SIZE}x${GRID_SIZE} tiles
-
-UNIT BASE STATS:
-  Soldier:  HP ${soldier.hp} | ATK ${soldier.attack}
-  Operator: HP ${operator.hp} | ATK ${operator.attack}
-  Medic:    HP ${medic.hp} | ATK ${medic.attack}
-
-DAMAGE FORMULA:
-  Ranged: ATK x 1
-  Melee:  ATK x ${meleeMultiplier}
-
-BOOSTS (+${boostPct}%):
-  Tough:  HP +${boostPct}%
-  Deadly: ATK +${boostPct}%
-  Quick:  Speed +${boostPct}%
-
-ACTIONS: ${ACTIONS_PER_TURN} per turn
-  - Move, Attack, Ability = 1 each
-  - Can repeat same action`;
-  }
-
-  function getNerdTextRight(): string {
-    const medic = CLASS_DATA.medic;
-    return `TURN ORDER:
-  - Accumulator += speed each tick
-  - Act when >= ${ACCUMULATOR_THRESHOLD}
-  - Higher speed = faster turns
-
-SPEED BONUS:
-  +${SPEED_BONUS_PER_UNUSED_ACTION}/unused action
-
-COVER (Soldier):
-  - Melee: 8 adjacent tiles
-  - Ranged: All LOS tiles
-  - Triggers on enemy action
-  - Breaks: fires, damaged, turn
-
-CONCEAL (Operator):
-  - Blocks next hit (0 dmg)
-  - Then breaks
-
-HEAL (Medic):
-  - ${medic.healAmount} HP to self/ally
-  - Adjacent only`;
-  }
-
-  function getNerdText(): string {
-    // All values pulled dynamically from config
-    const soldier = CLASS_DATA.soldier;
-    const operator = CLASS_DATA.operator;
-    const medic = CLASS_DATA.medic;
-    const boostPct = Math.round(BOOST_MULTIPLIER * 100);
-    const meleeMultiplier = MELEE_DAMAGE_MULTIPLIER;
-
-    return `GRID: ${GRID_SIZE}x${GRID_SIZE} tiles
+        return `GRID: ${GRID_SIZE}x${GRID_SIZE} tiles
 
 UNIT BASE STATS:
   Soldier:  HP ${soldier.hp} | ATK ${soldier.attack} | Move ${soldier.moveRange}
@@ -908,7 +490,9 @@ LINE OF SIGHT:
   - Units block the interior of their tile, not corners
   - Diagonal attacks/heals require clear LOS
   - Ranged attacks cannot target adjacent tiles`;
-  }
+      }
+    }
+  });
 
   // === CREATE EMBERS (after panel so they render on top) ===
   const numEmbers = 30;
