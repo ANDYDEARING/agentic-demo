@@ -154,10 +154,20 @@ export function createLoadoutScene(
   // ============================================
   const screenWidth = engine.getRenderWidth();
   const screenHeight = engine.getRenderHeight();
+  // Landscape phones (short height) should use mobile layout with tabs
   const isLandscapePhone = screenHeight < 500 && screenWidth < 1024;
-  const isMobile = screenWidth < 600 && !isLandscapePhone;
-  const isTablet = (screenWidth >= 600 && screenWidth < 1024) || isLandscapePhone;
-  const isDesktop = screenWidth >= 1024;
+  // Mobile: portrait phones OR landscape phones (both use single stack with tabs)
+  const isMobile = screenWidth < 600 || isLandscapePhone;
+  const isTablet = screenWidth >= 600 && screenWidth < 1024 && !isLandscapePhone;
+  // Large desktop: wide enough to show both teams side by side horizontally (1200px+)
+  const isLargeDesktop = screenWidth >= 1200;
+  // Portrait tablet (iPad portrait): tall screen, wide enough - stack both teams vertically, no tabs
+  const isPortraitTablet = screenWidth >= 600 && screenHeight > screenWidth && !isLandscapePhone;
+  // Layout modes:
+  // 1. isLargeDesktop: Both teams side by side horizontally
+  // 2. isPortraitTablet: Both teams stacked vertically (no tabs)
+  // 3. useTabLayout: Single team with P1/P2 tab toggle (landscape tablet, mobile, small desktop)
+  const useTabLayout = !isLargeDesktop && !isPortraitTablet;
 
   // Touch-friendly sizes
   const buttonHeight = isMobile ? 44 : isTablet ? 46 : 48;
@@ -230,7 +240,7 @@ export function createLoadoutScene(
   });
 
   // Camera setup for 3D preview
-  const camera = new ArcRotateCamera("cam", Math.PI / 2, Math.PI / 2.5, isDesktop ? 8 : 4, new Vector3(0, 0.8, 0), scene);
+  const camera = new ArcRotateCamera("cam", Math.PI / 2, Math.PI / 2.5, isLargeDesktop ? 8 : 4, new Vector3(0, 0.8, 0), scene);
   camera.lowerRadiusLimit = 2;
   camera.upperRadiusLimit = 12;
   scene.activeCamera = camera;
@@ -365,6 +375,17 @@ export function createLoadoutScene(
   let isDragging = false;
   let lastPointerY = 0;
   let customizeOverlayVisible = false;
+  // Track scrolling state to pause RTT updates (prevents flickering)
+  let isScrolling = false;
+  let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  const setScrolling = () => {
+    isScrolling = true;
+    if (scrollTimeout) clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(() => {
+      isScrolling = false;
+    }, 150); // Resume RTT updates 150ms after scroll stops
+  };
 
   scene.onPointerObservable.add((pointerInfo) => {
     if (customizeOverlayVisible) return;
@@ -389,6 +410,7 @@ export function createLoadoutScene(
       const maxScroll = contentHeight - viewportHeight;
 
       if (maxScroll > 0) {
+        setScrolling(); // Mark as scrolling to pause RTT updates
         const scrollDelta = deltaY / maxScroll;
         const newScroll = Math.max(0, Math.min(1, scrollViewer.verticalBar.value + scrollDelta));
         scrollViewer.verticalBar.value = newScroll;
@@ -397,25 +419,25 @@ export function createLoadoutScene(
   });
 
   // ============================================
-  // TOP BAR (Mobile: team tabs + colors, Desktop: just spacing)
+  // TOP BAR (Tab layout: team tabs + colors, Others: just spacing)
   // ============================================
   const topBar = new Rectangle("topBar");
   topBar.width = "100%";
-  topBar.height = isMobile ? "60px" : "20px";
+  topBar.height = useTabLayout ? "60px" : "20px";
   topBar.thickness = 0;
-  topBar.background = isMobile ? COLORS.bgPanel : "transparent";
+  topBar.background = useTabLayout ? COLORS.bgPanel : "transparent";
   mainStack.addControl(topBar);
 
-  // Mobile team tabs
+  // Team tabs (for tab layout - mobile, tablet, small desktop)
   let p1Tab: Button | null = null;
   let p2Tab: Button | null = null;
   const p1Cards: Rectangle[] = [];
   const p2Cards: Rectangle[] = [];
-  let mobileColorRefresh: (() => void) | null = null;
-  let mobileAiToggleRow: Rectangle | null = null;
-  let mobileAiToggleText: TextBlock | null = null;
+  let tabColorRefresh: (() => void) | null = null;
+  let tabAiToggleRow: Rectangle | null = null;
+  let tabAiToggleText: TextBlock | null = null;
 
-  if (isMobile) {
+  if (useTabLayout) {
     const tabsContainer = new StackPanel("tabsContainer");
     tabsContainer.isVertical = false;
     tabsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -452,7 +474,7 @@ export function createLoadoutScene(
     tabsContainer.addControl(p2Tab);
 
     // Team color swatches (right side)
-    const colorContainer = new StackPanel("mobileColorContainer");
+    const colorContainer = new StackPanel("tabColorContainer");
     colorContainer.isVertical = false;
     colorContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
     colorContainer.paddingRight = "10px";
@@ -462,28 +484,28 @@ export function createLoadoutScene(
     createTeamColorSwatches(colorContainer, () => currentTeam);
 
     // AI toggle row (only visible on P2 tab)
-    mobileAiToggleRow = new Rectangle("mobileAiToggleRow");
-    mobileAiToggleRow.width = "95%";
-    mobileAiToggleRow.height = "40px";
-    mobileAiToggleRow.background = COLORS.bgButton;
-    mobileAiToggleRow.cornerRadius = 6;
-    mobileAiToggleRow.thickness = 0;
-    mobileAiToggleRow.isVisible = false; // Hidden by default (P1 is selected)
-    mainStack.addControl(mobileAiToggleRow);
+    tabAiToggleRow = new Rectangle("tabAiToggleRow");
+    tabAiToggleRow.width = "95%";
+    tabAiToggleRow.height = "40px";
+    tabAiToggleRow.background = COLORS.bgButton;
+    tabAiToggleRow.cornerRadius = 6;
+    tabAiToggleRow.thickness = 0;
+    tabAiToggleRow.isVisible = false; // Hidden by default (P1 is selected)
+    mainStack.addControl(tabAiToggleRow);
 
-    mobileAiToggleText = new TextBlock("mobileAiToggleText");
-    mobileAiToggleText.text = isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF";
-    mobileAiToggleText.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
-    mobileAiToggleText.fontSize = fontSize;
-    mobileAiToggleRow.addControl(mobileAiToggleText);
+    tabAiToggleText = new TextBlock("tabAiToggleText");
+    tabAiToggleText.text = isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF";
+    tabAiToggleText.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
+    tabAiToggleText.fontSize = fontSize;
+    tabAiToggleRow.addControl(tabAiToggleText);
 
-    mobileAiToggleRow.onPointerClickObservable.add(() => {
+    tabAiToggleRow.onPointerClickObservable.add(() => {
       isP2Computer = !isP2Computer;
-      if (mobileAiToggleText) {
-        mobileAiToggleText.text = isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF";
-        mobileAiToggleText.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
+      if (tabAiToggleText) {
+        tabAiToggleText.text = isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF";
+        tabAiToggleText.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
       }
-      mobileAiToggleRow!.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
+      tabAiToggleRow!.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
     });
   }
 
@@ -493,16 +515,16 @@ export function createLoadoutScene(
       p1Tab.background = team === "player1" ? COLORS.selected : COLORS.bgButton;
       p2Tab.background = team === "player2" ? COLORS.selected : COLORS.bgButton;
     }
-    // Show/hide appropriate border containers (on mobile)
-    if (p1BorderContainer && p2BorderContainer && isMobile) {
+    // Show/hide appropriate border containers (tab layout)
+    if (p1BorderContainer && p2BorderContainer && useTabLayout) {
       p1BorderContainer.isVisible = team === "player1";
       p2BorderContainer.isVisible = team === "player2";
     }
-    // Update mobile color swatches
-    mobileColorRefresh?.();
-    // Update mobile AI toggle visibility (only show on P2)
-    if (mobileAiToggleRow) {
-      mobileAiToggleRow.isVisible = team === "player2";
+    // Update tab color swatches
+    tabColorRefresh?.();
+    // Update tab AI toggle visibility (only show on P2)
+    if (tabAiToggleRow) {
+      tabAiToggleRow.isVisible = team === "player2";
     }
   }
 
@@ -569,7 +591,7 @@ export function createLoadoutScene(
     };
 
     refreshSwatches();
-    mobileColorRefresh = refreshSwatches;
+    tabColorRefresh = refreshSwatches;
   }
 
   // ============================================
@@ -580,8 +602,8 @@ export function createLoadoutScene(
   let p1BorderContainer: Rectangle | null = null;
   let p2BorderContainer: Rectangle | null = null;
 
-  if (isMobile) {
-    // Mobile: Create bordered container for each team's cards
+  if (useTabLayout) {
+    // Tab layout: Create bordered container for each team's cards (one visible at a time)
     p1BorderContainer = new Rectangle("p1BorderContainer");
     p1BorderContainer.width = "95%";
     p1BorderContainer.thickness = 3;
@@ -619,7 +641,7 @@ export function createLoadoutScene(
     p2CardsStack.isVertical = true;
     p2BorderContainer.addControl(p2CardsStack);
 
-    // Mobile: Vertical stack of 3 cards per team
+    // Tab layout: Vertical stack of 3 cards per team
     for (let i = 0; i < UNITS_PER_TEAM; i++) {
       const p1Card = createUnitCard("player1", i);
       p1Cards.push(p1Card);
@@ -629,8 +651,72 @@ export function createLoadoutScene(
       p2Cards.push(p2Card);
       p2CardsStack.addControl(p2Card);
     }
+  } else if (isPortraitTablet) {
+    // Portrait tablet: Both teams stacked vertically, no tabs
+
+    // Player 1 section
+    const p1Header = createTeamHeader("player1", "PLAYER 1");
+    mainStack.addControl(p1Header);
+
+    p1BorderContainer = new Rectangle("p1BorderContainerPortrait");
+    p1BorderContainer.width = "95%";
+    p1BorderContainer.thickness = 3;
+    p1BorderContainer.color = selections.player1TeamColor || TEAM_COLORS[DEFAULT_PLAYER1_COLOR_INDEX].hex;
+    p1BorderContainer.cornerRadius = 12;
+    p1BorderContainer.background = "transparent";
+    p1BorderContainer.paddingTop = "8px";
+    p1BorderContainer.paddingBottom = "8px";
+    p1BorderContainer.paddingLeft = "8px";
+    p1BorderContainer.paddingRight = "8px";
+    p1BorderContainer.adaptHeightToChildren = true;
+    mainStack.addControl(p1BorderContainer);
+
+    const p1CardsStack = new StackPanel("p1CardsStackPortrait");
+    p1CardsStack.width = "100%";
+    p1CardsStack.isVertical = true;
+    p1BorderContainer.addControl(p1CardsStack);
+
+    for (let i = 0; i < UNITS_PER_TEAM; i++) {
+      const card = createUnitCard("player1", i);
+      p1CardsStack.addControl(card);
+    }
+
+    // Separator
+    const separator = new Rectangle("separator");
+    separator.width = "90%";
+    separator.height = "2px";
+    separator.background = COLORS.borderWarm;
+    separator.thickness = 0;
+    mainStack.addControl(separator);
+
+    // Player 2 section
+    const p2Header = createTeamHeader("player2", "PLAYER 2");
+    mainStack.addControl(p2Header);
+
+    p2BorderContainer = new Rectangle("p2BorderContainerPortrait");
+    p2BorderContainer.width = "95%";
+    p2BorderContainer.thickness = 3;
+    p2BorderContainer.color = selections.player2TeamColor || TEAM_COLORS[DEFAULT_PLAYER2_COLOR_INDEX].hex;
+    p2BorderContainer.cornerRadius = 12;
+    p2BorderContainer.background = "transparent";
+    p2BorderContainer.paddingTop = "8px";
+    p2BorderContainer.paddingBottom = "8px";
+    p2BorderContainer.paddingLeft = "8px";
+    p2BorderContainer.paddingRight = "8px";
+    p2BorderContainer.adaptHeightToChildren = true;
+    mainStack.addControl(p2BorderContainer);
+
+    const p2CardsStack = new StackPanel("p2CardsStackPortrait");
+    p2CardsStack.width = "100%";
+    p2CardsStack.isVertical = true;
+    p2BorderContainer.addControl(p2CardsStack);
+
+    for (let i = 0; i < UNITS_PER_TEAM; i++) {
+      const card = createUnitCard("player2", i);
+      p2CardsStack.addControl(card);
+    }
   } else {
-    // Desktop/Tablet: Two rows of 3 cards
+    // Large desktop: Two rows of 3 cards (both teams visible horizontally)
 
     // Player 1 section
     const p1Header = createTeamHeader("player1", "PLAYER 1");
@@ -751,13 +837,13 @@ export function createLoadoutScene(
         }
         aiToggleBtn.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
         aiToggleBtn.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
-        // Update mobile toggle if exists
-        if (mobileAiToggleText) {
-          mobileAiToggleText.text = isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF";
-          mobileAiToggleText.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
+        // Update tab layout toggle if exists
+        if (tabAiToggleText) {
+          tabAiToggleText.text = isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF";
+          tabAiToggleText.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
         }
-        if (mobileAiToggleRow) {
-          mobileAiToggleRow.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
+        if (tabAiToggleRow) {
+          tabAiToggleRow.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
         }
       });
       aiToggleContainer.addControl(aiToggleBtn);
@@ -837,9 +923,18 @@ export function createLoadoutScene(
     const key = `${playerId}_${unitIndex}`;
     const state = unitStates[key];
 
+    // Vertical stacking layout (tab layout or portrait tablet)
+    const useVerticalCards = useTabLayout || isPortraitTablet;
+
     const card = new Rectangle(`card_${key}`);
     card.width = "95%";
-    card.height = isMobile ? "160px" : "100%";
+    if (useVerticalCards) {
+      // Vertical layout: cards stack vertically, need fixed/adaptive height
+      card.adaptHeightToChildren = true;
+    } else {
+      // Large desktop: cards in horizontal grid, fill cell height
+      card.height = "100%";
+    }
     card.background = COLORS.bgPanel;
     card.cornerRadius = 8;
     card.thickness = 1;
@@ -849,39 +944,51 @@ export function createLoadoutScene(
     card.paddingLeft = "8px";
     card.paddingRight = "8px";
 
-    // Main grid: 2 columns (copy left, preview right)
+    // Main layout: Grid with two columns (copy left, preview right)
+    // Calculate copy column width in pixels to avoid percentage warnings
+    const cardWidthPx = useVerticalCards ? screenWidth * 0.9 : screenWidth * 0.3; // Approximate card width
+    const copyWidthPx = Math.floor(cardWidthPx * 0.55);
+
     const cardGrid = new Grid(`cardGrid_${key}`);
     cardGrid.width = "100%";
-    cardGrid.height = "100%";
-    cardGrid.addColumnDefinition(0.55); // Left column - copy
-    cardGrid.addColumnDefinition(0.45); // Right column - preview
-    cardGrid.addRowDefinition(1, false); // Single content row
+    if (useVerticalCards) {
+      // Vertical layout: calculate height based on screen width to ensure text fits
+      // Narrower screens need more height for wrapped text
+      const baseHeight = screenWidth < 400 ? 260 : screenWidth < 800 ? 200 : 180;
+      cardGrid.height = `${baseHeight}px`;
+    } else {
+      // Large desktop: fill available height
+      cardGrid.height = "100%";
+    }
+    cardGrid.addColumnDefinition(copyWidthPx, true);   // Fixed pixel width for copy
+    cardGrid.addColumnDefinition(1, false);            // Remaining space for preview
+    cardGrid.addRowDefinition(1);
     card.addControl(cardGrid);
 
-    // Left column: copy (use Grid instead of StackPanel to support percentage heights)
-    const copyGrid = new Grid(`copyGrid_${key}`);
-    copyGrid.width = "100%";
-    copyGrid.height = "100%";
-    copyGrid.addRowDefinition(32, true); // Title row - fixed height
-    copyGrid.addRowDefinition(1, false); // Description - takes remaining space
-    copyGrid.addColumnDefinition(1);
-    copyGrid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    copyGrid.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-    copyGrid.paddingLeft = "8px";
-    copyGrid.paddingRight = "4px";
-    copyGrid.paddingTop = "4px";
-    copyGrid.paddingBottom = "4px";
-    cardGrid.addControl(copyGrid, 0, 0);
+    // Left column: copy (wrapper Rectangle to hold the StackPanel)
+    const copyWrapper = new Rectangle(`copyWrapper_${key}`);
+    copyWrapper.thickness = 0;
+    copyWrapper.paddingLeft = "8px";
+    copyWrapper.paddingRight = "4px";
+    copyWrapper.paddingTop = "4px";
+    copyWrapper.paddingBottom = "4px";
+    cardGrid.addControl(copyWrapper, 0, 0);
+
+    const copyStack = new StackPanel(`copyStack_${key}`);
+    copyStack.isVertical = true;
+    copyStack.width = "100%";
+    copyStack.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    copyWrapper.addControl(copyStack);
 
     // Title row: Symbol left, Class center, Edit right
     const titleRow = new Grid(`titleRow_${key}`);
     titleRow.width = "100%";
-    titleRow.height = "100%";
+    titleRow.height = "32px";
     titleRow.addColumnDefinition(isMobile ? 28 : 32, true); // Symbol fixed width
     titleRow.addColumnDefinition(1, false); // Class name takes remaining space
     titleRow.addColumnDefinition(isMobile ? 32 : 50, true); // Edit button fixed width
     titleRow.addRowDefinition(1);
-    copyGrid.addControl(titleRow, 0, 0);
+    copyStack.addControl(titleRow);
 
     // Symbol (left)
     const symbolText = new TextBlock(`symbol_${key}`);
@@ -925,15 +1032,7 @@ export function createLoadoutScene(
     });
     titleRow.addControl(editBtn, 0, 2);
 
-    // Description - use ScrollViewer to prevent cutoff
-    const descScroll = new ScrollViewer(`descScroll_${key}`);
-    descScroll.width = "100%";
-    descScroll.height = "100%";
-    descScroll.thickness = 0;
-    descScroll.barSize = 0;
-    descScroll.paddingTop = "4px";
-    copyGrid.addControl(descScroll, 1, 0);
-
+    // Description - auto-sizes to content
     const descText = new TextBlock(`desc_${key}`);
     descText.text = getUnitDescription(state.selectedClass, state.selectedBoost, state.selectedStyle);
     descText.color = COLORS.textSecondary;
@@ -942,9 +1041,10 @@ export function createLoadoutScene(
     descText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     descText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
     descText.resizeToFit = true;
-    descText.paddingLeft = "5px";
+    descText.paddingTop = "8px";
+    descText.paddingLeft = "2px";
     descText.paddingRight = "5px";
-    descScroll.addControl(descText);
+    copyStack.addControl(descText);
 
     // Right column: preview
     const previewContainer = new Rectangle(`preview_${key}`);
@@ -1044,7 +1144,7 @@ export function createLoadoutScene(
     // Rotation and animation cycling state
     const rotationSpeed = 0.008; // Radians per frame (slow rotation)
     let totalRotation = 0;
-    let currentAnimPhase = 0; // 0=idle, 1=attack, 2=run, 3=ability
+    let currentAnimPhase = 0; // 0=idle, 1=attack, 2=run
 
     rtt.onAfterRenderObservable.add(() => {
       if (!previewModelLoaded) return;
@@ -1058,7 +1158,7 @@ export function createLoadoutScene(
       // After one full rotation, cycle to next animation
       if (totalRotation >= Math.PI * 2) {
         totalRotation = 0;
-        currentAnimPhase = (currentAnimPhase + 1) % 4;
+        currentAnimPhase = (currentAnimPhase + 1) % 3;
 
         const state = unitStates[key];
         const isMelee = state.selectedStyle === "melee";
@@ -1082,15 +1182,12 @@ export function createLoadoutScene(
           // Run (loop for full rotation)
           const runAnim = unitPreviewAnims.find(ag => ag.name === "Run");
           if (runAnim) runAnim.start(true);
-        } else if (currentAnimPhase === 3) {
-          // Ability (Interact animation, loop for full rotation)
-          const interactAnim = unitPreviewAnims.find(ag => ag.name === "Interact");
-          if (interactAnim) interactAnim.start(true);
         }
       }
 
       // Only update image every few frames for performance
-      if (frameCount % 2 !== 0) return;
+      // Skip updates during scroll to prevent flickering
+      if (frameCount % 2 !== 0 || isScrolling) return;
 
       rtt.readPixels()?.then((buffer) => {
         if (!buffer) return;
