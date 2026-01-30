@@ -24,7 +24,7 @@ import {
   ScrollViewer,
   Image,
 } from "@babylonjs/gui";
-import { ALL_CLASSES, getClassData, Loadout, UnitSelection, UnitClass, UnitCustomization, SceneName } from "../types";
+import { ALL_CLASSES, getClassData, Loadout, UnitClass, UnitCustomization, SceneName } from "../types";
 import { getGameMode } from "../main";
 
 // Import centralized config
@@ -54,7 +54,7 @@ const COLORS = {
   bgUnitRow: "#1a1714",
   bgButton: "#2a2420",
   bgButtonHover: "#3a3025",
-  bgPreview: "#0a0a0a", // Near-black background for RTT previews
+  bgPreview: "#0a0a0a",
 
   // Borders & dividers
   borderWarm: "#3a2a1a",
@@ -104,40 +104,35 @@ const CLASS_INFO: Record<UnitClass, { name: string; tagline: string; abilityName
   },
 };
 
-// Boost info - values can be adjusted later
+// Boost info
 const BOOST_INFO = [
   { name: "Tough", stat: "HP", value: 25, desc: "This unit has an extra" },
   { name: "Deadly", stat: "Damage", value: 25, desc: "This unit deals an extra" },
   { name: "Quick", stat: "Speed", value: 25, desc: "This unit has" },
 ];
 
-// Helper to format boost copy text
-function getBoostCopy(boost: typeof BOOST_INFO[0]): string {
-  return `[${boost.name.toUpperCase()}]: ${boost.desc} +${boost.value}% ${boost.stat}`;
-}
-
 // Weapon info
 const WEAPON_INFO = {
   ranged: {
     label: "Ranged",
-    desc: "This unit can attack any unit that is not adjacent (including diagonals) and in its Line of Sight",
+    desc: "Can attack non-adjacent units in Line of Sight",
   },
   melee: {
     label: "Melee",
-    desc: "This unit deals 2x damage and attacks adjacent spaces only",
+    desc: "2x damage, adjacent spaces only",
   },
 };
 
-// Helper to get full unit description
+// Helper to get full unit description for card
 function getUnitDescription(unitClass: UnitClass, boostIndex: number, weaponStyle: "ranged" | "melee"): string {
   const cls = CLASS_INFO[unitClass];
   const boost = BOOST_INFO[boostIndex];
   const weapon = WEAPON_INFO[weaponStyle];
 
   return [
-    `${cls.name}: ${cls.tagline}`,
+    cls.tagline,
     `[${cls.abilityName}]: ${cls.abilityDesc}`,
-    getBoostCopy(boost),
+    `[${boost.name.toUpperCase()}]: ${boost.desc} +${boost.value}% ${boost.stat}`,
     `[${weapon.label.toUpperCase()}]: ${weapon.desc}`,
   ].join("\n\n");
 }
@@ -162,23 +157,18 @@ export function createLoadoutScene(
   const isLandscapePhone = screenHeight < 500 && screenWidth < 1024;
   const isMobile = screenWidth < 600 && !isLandscapePhone;
   const isTablet = (screenWidth >= 600 && screenWidth < 1024) || isLandscapePhone;
+  const isDesktop = screenWidth >= 1024;
 
-  // Touch-friendly button heights (44px minimum for mobile)
+  // Touch-friendly sizes
   const buttonHeight = isMobile ? 44 : isTablet ? 46 : 48;
   const smallButtonHeight = isMobile ? 40 : isTablet ? 42 : 44;
   const fontSize = isMobile ? 13 : isTablet ? 14 : 15;
   const smallFontSize = isMobile ? 11 : isTablet ? 12 : 13;
-  const tinyFontSize = isMobile ? 10 : isTablet ? 11 : 12;
-  const headerFontSize = isMobile ? 20 : isTablet ? 24 : 26;
-  // Unit row: 3 rows of buttons + padding
-  const unitRowHeight = isMobile ? 160 : isTablet ? 180 : 200;
-  const panelWidth = isMobile ? "98%" : isTablet ? "94%" : "85%";
-  const isDesktop = screenWidth >= 1024;
 
   // Listen for orientation/resize changes and reload scene
   const initialOrientation = screenWidth > screenHeight ? "landscape" : "portrait";
   let reloadPending = false;
-  let isOrientationReload = false; // Flag to preserve music during reload
+  let isOrientationReload = false;
 
   const handleResize = () => {
     if (reloadPending) return;
@@ -187,14 +177,12 @@ export function createLoadoutScene(
     const newHeight = engine.getRenderHeight();
     const newOrientation = newWidth > newHeight ? "landscape" : "portrait";
 
-    // Reload if orientation changed or significant size change (>100px in either dimension)
     const orientationChanged = newOrientation !== initialOrientation;
     const significantResize = Math.abs(newWidth - screenWidth) > 100 || Math.abs(newHeight - screenHeight) > 100;
 
     if (orientationChanged || significantResize) {
       reloadPending = true;
-      isOrientationReload = true; // Preserve music during this reload
-      // Small delay to let the resize settle
+      isOrientationReload = true;
       setTimeout(() => {
         navigateTo("loadout");
       }, 100);
@@ -209,7 +197,7 @@ export function createLoadoutScene(
     window.removeEventListener("orientationchange", handleResize);
   });
 
-  // Loadout music - reuse existing player if already playing (for orientation reloads)
+  // Loadout music
   if (!loadoutMusic) {
     loadoutMusic = createMusicPlayer(MUSIC.loadout, AUDIO_VOLUMES.music, true, LOOP_BUFFER_TIME);
     loadoutMusic.play();
@@ -228,7 +216,6 @@ export function createLoadoutScene(
     window.removeEventListener("keydown", skipHandler);
   });
 
-  // Only stop music when navigating away (not on orientation reload)
   scene.onDisposeObservable.add(() => {
     if (!isOrientationReload && loadoutMusic) {
       loadoutMusic.pause();
@@ -237,16 +224,13 @@ export function createLoadoutScene(
     }
   });
 
-  // Clean up RTTs before scene disposal to avoid postProcessManager errors
+  // Clean up RTTs before scene disposal
   scene.onDisposeObservable.add(() => {
-    // Clear custom render targets array to prevent disposal errors
     scene.customRenderTargets.length = 0;
   });
 
   // Camera setup for 3D preview
   const camera = new ArcRotateCamera("cam", Math.PI / 2, Math.PI / 2.5, isDesktop ? 8 : 4, new Vector3(0, 0.8, 0), scene);
-  // Don't attach camera controls - they interfere with UI scrolling
-  // camera.attachControl(_canvas, true);
   camera.lowerRadiusLimit = 2;
   camera.upperRadiusLimit = 12;
   scene.activeCamera = camera;
@@ -259,6 +243,9 @@ export function createLoadoutScene(
   // Get game mode
   const { mode: gameMode, humanTeam } = getGameMode();
 
+  // ============================================
+  // STATE
+  // ============================================
   const selections: Loadout = {
     player1: [],
     player2: [],
@@ -268,48 +255,109 @@ export function createLoadoutScene(
     humanTeam,
   };
 
-  // Track team color refresh callbacks
-  const teamColorRefreshCallbacks: { player1?: () => void; player2?: () => void } = {};
+  // Current team for mobile view
+  let currentTeam: "player1" | "player2" = "player1";
 
-  // Track preview refresh callbacks (called when team color changes)
+  // Track callbacks
   const previewRefreshCallbacks: { player1: (() => void)[]; player2: (() => void)[] } = {
     player1: [],
     player2: [],
   };
-
-  // Track preview reload callbacks (called when gender changes - reloads model if needed)
   const previewReloadCallbacks: { player1: (() => void)[]; player2: (() => void)[] } = {
     player1: [],
     player2: [],
   };
+  const cardUpdateCallbacks: { player1: (() => void)[]; player2: (() => void)[] } = {
+    player1: [],
+    player2: [],
+  };
 
-  // Track callbacks to mark units as customized (called when appearance editor saves)
-  const customizedMarkers: Record<string, () => void> = {};
+  // Unit state per slot (indexed by playerId_unitIndex)
+  interface UnitState {
+    selectedClass: UnitClass;
+    selectedBoost: number;
+    selectedStyle: "ranged" | "melee";
+    customization: UnitCustomization;
+    hasBeenCustomized: boolean;
+  }
 
-  // Track edit buttons for style reset when editor closes
-  const editButtonResetCallbacks: (() => void)[] = [];
+  const unitStates: Record<string, UnitState> = {};
+
+  // Initialize default unit states
+  const defaultClasses: UnitClass[] = ["soldier", "operator", "medic"];
+  const defaultBoosts = [0, 1, 2];
+  const defaultStyles: ("ranged" | "melee")[] = ["ranged", "melee", "ranged"];
+
+  for (const playerId of ["player1", "player2"] as const) {
+    for (let i = 0; i < UNITS_PER_TEAM; i++) {
+      const key = `${playerId}_${i}`;
+      unitStates[key] = {
+        selectedClass: defaultClasses[i] || "soldier",
+        selectedBoost: defaultBoosts[i] ?? 0,
+        selectedStyle: defaultStyles[i] || "ranged",
+        customization: randomizeAppearance(defaultStyles[i] || "ranged"),
+        hasBeenCustomized: false,
+      };
+    }
+  }
+
+  function randomizeAppearance(style: "ranged" | "melee"): UnitCustomization {
+    return {
+      body: Math.random() > 0.5 ? "male" : "female",
+      combatStyle: style,
+      handedness: Math.random() > 0.5 ? "right" : "left",
+      head: Math.floor(Math.random() * 4),
+      hairColor: Math.floor(Math.random() * HAIR_COLORS.length),
+      eyeColor: Math.floor(Math.random() * EYE_COLORS.length),
+      skinTone: Math.floor(Math.random() * SKIN_TONES.length),
+    };
+  }
+
+  // Update selections array from unit states
+  function syncSelectionsFromStates(): void {
+    for (const playerId of ["player1", "player2"] as const) {
+      selections[playerId] = [];
+      for (let i = 0; i < UNITS_PER_TEAM; i++) {
+        const state = unitStates[`${playerId}_${i}`];
+        selections[playerId].push({
+          unitClass: state.selectedClass,
+          customization: { ...state.customization, combatStyle: state.selectedStyle },
+        });
+      }
+    }
+  }
+
+  // Initial sync
+  syncSelectionsFromStates();
 
   // ============================================
-  // MAIN LAYOUT - Custom drag-to-scroll
+  // MAIN LAYOUT
   // ============================================
+
+  // Scroll viewer for content
   const scrollViewer = new ScrollViewer("mainScroll");
   scrollViewer.width = "100%";
   scrollViewer.height = "100%";
   scrollViewer.thickness = 0;
-  scrollViewer.barSize = 0; // Hide scrollbar
+  scrollViewer.barSize = 0;
   scrollViewer.barColor = "transparent";
   scrollViewer.wheelPrecision = 0.05;
   gui.addControl(scrollViewer);
 
-  // Custom drag-to-scroll implementation using scene-level events
-  // Note: appearanceOverlay is created later, so we reference it via closure
+  // Main content stack
+  const mainStack = new StackPanel("mainStack");
+  mainStack.width = "100%";
+  mainStack.isVertical = true;
+  mainStack.paddingBottom = "90px"; // Space for start button
+  scrollViewer.addControl(mainStack);
+
+  // Custom drag-to-scroll
   let isDragging = false;
   let lastPointerY = 0;
-  let mainScrollOverlayCheck: (() => boolean) | null = null; // Set later after overlay is created
+  let customizeOverlayVisible = false;
 
   scene.onPointerObservable.add((pointerInfo) => {
-    // Skip if an overlay is open (like appearance editor)
-    if (mainScrollOverlayCheck && mainScrollOverlayCheck()) return;
+    if (customizeOverlayVisible) return;
 
     const evt = pointerInfo.event;
 
@@ -338,154 +386,100 @@ export function createLoadoutScene(
     }
   });
 
-  const mainStack = new StackPanel("mainStack");
-  mainStack.width = "100%";
-  mainStack.isVertical = true;
-  mainStack.paddingTop = "15px";
-  mainStack.paddingBottom = "90px"; // Space for start button
-  scrollViewer.addControl(mainStack);
-
   // ============================================
-  // START BUTTON (fixed at bottom)
+  // TOP BAR (Mobile: team tabs + colors, Desktop: just spacing)
   // ============================================
-  const startBtnContainer = new Rectangle("startBtnContainer");
-  startBtnContainer.width = "100%";
-  startBtnContainer.height = "80px";
-  startBtnContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-  startBtnContainer.background = COLORS.bgDeep + "ee";
-  startBtnContainer.thickness = 0;
-  gui.addControl(startBtnContainer);
+  const topBar = new Rectangle("topBar");
+  topBar.width = "100%";
+  topBar.height = isMobile ? "60px" : "20px";
+  topBar.thickness = 0;
+  topBar.background = isMobile ? COLORS.bgPanel : "transparent";
+  mainStack.addControl(topBar);
 
-  const startBtn = Button.CreateSimpleButton("startBattle", "S T A R T   B A T T L E");
-  startBtn.width = isMobile ? "80%" : isTablet ? "50%" : "300px";
-  startBtn.height = `${buttonHeight + 10}px`;
-  startBtn.color = COLORS.textPrimary;
-  startBtn.background = COLORS.disabled;
-  startBtn.cornerRadius = 6;
-  startBtn.fontSize = fontSize + 2;
-  startBtn.fontFamily = "'Bebas Neue', sans-serif";
-  startBtn.isEnabled = false;
-  startBtn.alpha = 0.5;
-  startBtn.onPointerClickObservable.add(() => {
-    if (isReadyToStart()) {
-      onStartBattle(selections);
-    }
-  });
-  startBtnContainer.addControl(startBtn);
+  // Mobile team tabs
+  let p1Tab: Button | null = null;
+  let p2Tab: Button | null = null;
+  const p1Cards: Rectangle[] = [];
+  const p2Cards: Rectangle[] = [];
 
-  function isReadyToStart(): boolean {
-    return selections.player1.length === UNITS_PER_TEAM && selections.player2.length === UNITS_PER_TEAM;
+  if (isMobile) {
+    const tabsContainer = new StackPanel("tabsContainer");
+    tabsContainer.isVertical = false;
+    tabsContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    tabsContainer.left = "10px";
+    tabsContainer.height = "100%";
+    topBar.addControl(tabsContainer);
+
+    p1Tab = Button.CreateSimpleButton("p1Tab", "P1");
+    p1Tab.width = "50px";
+    p1Tab.height = "36px";
+    p1Tab.background = COLORS.selected;
+    p1Tab.color = COLORS.textPrimary;
+    p1Tab.fontSize = fontSize;
+    p1Tab.cornerRadius = 4;
+    p1Tab.thickness = 0;
+    p1Tab.onPointerClickObservable.add(() => switchTeam("player1"));
+    tabsContainer.addControl(p1Tab);
+
+    const tabSpacer = new Rectangle();
+    tabSpacer.width = "8px";
+    tabSpacer.height = "1px";
+    tabSpacer.thickness = 0;
+    tabsContainer.addControl(tabSpacer);
+
+    p2Tab = Button.CreateSimpleButton("p2Tab", "P2");
+    p2Tab.width = "50px";
+    p2Tab.height = "36px";
+    p2Tab.background = COLORS.bgButton;
+    p2Tab.color = COLORS.textPrimary;
+    p2Tab.fontSize = fontSize;
+    p2Tab.cornerRadius = 4;
+    p2Tab.thickness = 0;
+    p2Tab.onPointerClickObservable.add(() => switchTeam("player2"));
+    tabsContainer.addControl(p2Tab);
+
+    // Team color swatches (right side)
+    const colorContainer = new StackPanel("mobileColorContainer");
+    colorContainer.isVertical = false;
+    colorContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    colorContainer.paddingRight = "10px";
+    colorContainer.height = "100%";
+    topBar.addControl(colorContainer);
+
+    createTeamColorSwatches(colorContainer, () => currentTeam);
   }
 
-  function updateStartButton(): void {
-    const ready = isReadyToStart();
-    startBtn.isEnabled = ready;
-    startBtn.alpha = ready ? 1 : 0.5;
-    startBtn.background = ready ? COLORS.success : COLORS.disabled;
-    if (ready) {
-      startBtn.onPointerEnterObservable.clear();
-      startBtn.onPointerOutObservable.clear();
-      startBtn.onPointerEnterObservable.add(() => {
-        startBtn.background = COLORS.successHover;
-      });
-      startBtn.onPointerOutObservable.add(() => {
-        startBtn.background = COLORS.success;
-      });
+  let mobileColorRefresh: (() => void) | null = null;
+
+  function switchTeam(team: "player1" | "player2"): void {
+    currentTeam = team;
+    if (p1Tab && p2Tab) {
+      p1Tab.background = team === "player1" ? COLORS.selected : COLORS.bgButton;
+      p2Tab.background = team === "player2" ? COLORS.selected : COLORS.bgButton;
     }
+    // Show/hide appropriate cards
+    p1Cards.forEach(c => c.isVisible = team === "player1");
+    p2Cards.forEach(c => c.isVisible = team === "player2");
+    // Update mobile color swatches
+    mobileColorRefresh?.();
   }
 
-  // Player names for PvE
-  const player1Name = gameMode === "local-pve" && humanTeam !== "player1" ? "Computer" : "Player 1";
-  const player2Name = gameMode === "local-pve" && humanTeam !== "player2" ? "Computer" : "Player 2";
-
-  // Create both player panels
-  createPlayerPanel(player1Name, "player1", selections.player1, mainStack);
-
-  // Separator
-  const separator = new Rectangle("separator");
-  separator.width = panelWidth;
-  separator.height = "2px";
-  separator.background = COLORS.borderWarm;
-  separator.thickness = 0;
-  mainStack.addControl(separator);
-
-  createPlayerPanel(player2Name, "player2", selections.player2, mainStack);
-
-  // ============================================
-  // PLAYER PANEL
-  // ============================================
-  function createPlayerPanel(
-    playerName: string,
-    playerId: "player1" | "player2",
-    selectionArray: UnitSelection[],
-    parent: StackPanel
-  ): void {
-    const defaultColor = playerId === "player1"
-      ? TEAM_COLORS[DEFAULT_PLAYER1_COLOR_INDEX].hex
-      : TEAM_COLORS[DEFAULT_PLAYER2_COLOR_INDEX].hex;
-
-    const panelHeight = unitRowHeight * UNITS_PER_TEAM + 80;
-
-    const panel = new Rectangle(`${playerId}Panel`);
-    panel.width = panelWidth;
-    panel.height = `${panelHeight}px`;
-    panel.background = COLORS.bgPanel;
-    panel.cornerRadius = 8;
-    panel.thickness = 2;
-    panel.color = defaultColor;
-    panel.paddingTop = "10px";
-    panel.paddingBottom = "10px";
-    parent.addControl(panel);
-
-    const panelStack = new StackPanel(`${playerId}Stack`);
-    panelStack.width = "100%";
-    panelStack.isVertical = true;
-    panel.addControl(panelStack);
-
-    // Header row: Player name + Team color
-    const headerRow = new Grid(`${playerId}Header`);
-    headerRow.width = "95%";
-    headerRow.height = `${buttonHeight + 10}px`;
-    headerRow.addColumnDefinition(0.4);
-    headerRow.addColumnDefinition(0.6);
-    headerRow.addRowDefinition(1);
-    panelStack.addControl(headerRow);
-
-    const nameText = new TextBlock(`${playerId}Name`);
-    nameText.text = playerName.toUpperCase();
-    nameText.color = defaultColor;
-    nameText.fontSize = headerFontSize;
-    nameText.fontFamily = "'Bebas Neue', sans-serif";
-    nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    nameText.paddingLeft = "10px";
-    headerRow.addControl(nameText, 0, 0);
-
-    // Team color selector
-    const colorRow = new StackPanel(`${playerId}ColorRow`);
-    colorRow.isVertical = false;
-    colorRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    colorRow.paddingRight = "10px";
-    headerRow.addControl(colorRow, 0, 1);
-
-    const colorLabel = new TextBlock();
-    colorLabel.text = "TEAM";
-    colorLabel.color = COLORS.textMuted;
-    colorLabel.fontSize = smallFontSize;
-    colorLabel.width = "45px";
-    colorRow.addControl(colorLabel);
-
-    const colorSwatches: Rectangle[] = [];
-
-    const getOtherColor = (): string => {
-      return (playerId === "player1" ? selections.player2TeamColor : selections.player1TeamColor) ?? "";
-    };
+  function createTeamColorSwatches(parent: StackPanel, getTeam: () => "player1" | "player2"): void {
+    const swatches: Rectangle[] = [];
 
     const getThisColor = (): string => {
-      return (playerId === "player1" ? selections.player1TeamColor : selections.player2TeamColor) ?? "";
+      const team = getTeam();
+      return team === "player1" ? selections.player1TeamColor! : selections.player2TeamColor!;
+    };
+
+    const getOtherColor = (): string => {
+      const team = getTeam();
+      return team === "player1" ? selections.player2TeamColor! : selections.player1TeamColor!;
     };
 
     const setThisColor = (hex: string): void => {
-      if (playerId === "player1") {
+      const team = getTeam();
+      if (team === "player1") {
         selections.player1TeamColor = hex;
       } else {
         selections.player2TeamColor = hex;
@@ -493,7 +487,7 @@ export function createLoadoutScene(
     };
 
     TEAM_COLORS.forEach((teamColor) => {
-      const swatchSize = isMobile ? 28 : 24;
+      const swatchSize = 28;
       const swatch = new Rectangle();
       swatch.width = `${swatchSize}px`;
       swatch.height = `${swatchSize}px`;
@@ -502,33 +496,21 @@ export function createLoadoutScene(
       swatch.paddingLeft = "2px";
       swatch.paddingRight = "2px";
 
-      const isSelected = getThisColor() === teamColor.hex;
-      const isDisabled = getOtherColor() === teamColor.hex;
-      swatch.thickness = isSelected ? 3 : 1;
-      swatch.color = isSelected ? "white" : COLORS.borderWarm;
-      swatch.alpha = isDisabled ? 0.3 : 1;
-
       swatch.onPointerClickObservable.add(() => {
         if (getOtherColor() === teamColor.hex) return;
         setThisColor(teamColor.hex);
-        refreshColorSwatches();
-        panel.color = teamColor.hex;
-        nameText.color = teamColor.hex;
-
-        // Refresh previews for this player's units
-        previewRefreshCallbacks[playerId].forEach(cb => cb());
-
-        const otherPlayerId = playerId === "player1" ? "player2" : "player1";
-        teamColorRefreshCallbacks[otherPlayerId]?.();
+        refreshSwatches();
+        // Refresh previews
+        previewRefreshCallbacks[getTeam()].forEach(cb => cb());
       });
 
-      colorSwatches.push(swatch);
-      colorRow.addControl(swatch);
+      swatches.push(swatch);
+      parent.addControl(swatch);
     });
 
-    const refreshColorSwatches = (): void => {
+    const refreshSwatches = (): void => {
       TEAM_COLORS.forEach((teamColor, i) => {
-        const swatch = colorSwatches[i];
+        const swatch = swatches[i];
         const isSelected = getThisColor() === teamColor.hex;
         const isDisabled = getOtherColor() === teamColor.hex;
         swatch.thickness = isSelected ? 3 : 1;
@@ -537,52 +519,488 @@ export function createLoadoutScene(
       });
     };
 
-    teamColorRefreshCallbacks[playerId] = refreshColorSwatches;
-
-    // Unit rows container
-    const unitsContainer = new StackPanel(`${playerId}Units`);
-    unitsContainer.width = "100%";
-    unitsContainer.isVertical = true;
-    unitsContainer.paddingTop = "5px";
-    unitsContainer.paddingBottom = "10px";
-    panelStack.addControl(unitsContainer);
-
-    // Create 3 unit selection rows
-    for (let i = 0; i < UNITS_PER_TEAM; i++) {
-      createUnitRow(i, playerId, selectionArray, unitsContainer);
-    }
+    refreshSwatches();
+    mobileColorRefresh = refreshSwatches;
   }
 
   // ============================================
-  // APPEARANCE EDITOR OVERLAY
+  // UNIT CARDS
   // ============================================
-  const appearanceOptionButtons: Map<string, Button[]> = new Map();
-  const appearanceColorSwatches: Map<string, Rectangle[]> = new Map();
 
-  let editingUnit: { playerId: string; unitIndex: number; selectionArray: UnitSelection[] } | null = null;
-  let editingCustomization: UnitCustomization = {
-    body: "male",
-    combatStyle: "ranged",
-    handedness: "right",
-    head: 0,
-    hairColor: 0,
-    eyeColor: 2,
-    skinTone: 4,
-  };
+  if (isMobile) {
+    // Mobile: Vertical stack of 3 cards per team
+    for (let i = 0; i < UNITS_PER_TEAM; i++) {
+      const p1Card = createUnitCard("player1", i);
+      p1Cards.push(p1Card);
+      mainStack.addControl(p1Card);
 
-  // RTT-based preview for appearance editor
-  let editorPreviewMesh: AbstractMesh | null = null;
-  let editorPreviewMeshes: AbstractMesh[] = [];
-  let editorPreviewAnimations: AnimationGroup[] = [];
-  let editorLoadedModelKey = "";
+      const p2Card = createUnitCard("player2", i);
+      p2Card.isVisible = false;
+      p2Cards.push(p2Card);
+      mainStack.addControl(p2Card);
+    }
+  } else {
+    // Desktop/Tablet: Two rows of 3 cards
 
-  // RTT setup for appearance editor preview
+    // Player 1 section
+    const p1Header = createTeamHeader("player1", "PLAYER 1");
+    mainStack.addControl(p1Header);
+
+    const p1Row = new Grid("p1Row");
+    p1Row.width = "95%";
+    p1Row.height = `${screenHeight * 0.38}px`;
+    p1Row.addColumnDefinition(1/3);
+    p1Row.addColumnDefinition(1/3);
+    p1Row.addColumnDefinition(1/3);
+    p1Row.addRowDefinition(1);
+    mainStack.addControl(p1Row);
+
+    for (let i = 0; i < UNITS_PER_TEAM; i++) {
+      const card = createUnitCard("player1", i);
+      p1Row.addControl(card, 0, i);
+    }
+
+    // Separator
+    const separator = new Rectangle("separator");
+    separator.width = "90%";
+    separator.height = "2px";
+    separator.background = COLORS.borderWarm;
+    separator.thickness = 0;
+    mainStack.addControl(separator);
+
+    // Player 2 section
+    const p2Header = createTeamHeader("player2", "PLAYER 2");
+    mainStack.addControl(p2Header);
+
+    const p2Row = new Grid("p2Row");
+    p2Row.width = "95%";
+    p2Row.height = `${screenHeight * 0.38}px`;
+    p2Row.addColumnDefinition(1/3);
+    p2Row.addColumnDefinition(1/3);
+    p2Row.addColumnDefinition(1/3);
+    p2Row.addRowDefinition(1);
+    mainStack.addControl(p2Row);
+
+    for (let i = 0; i < UNITS_PER_TEAM; i++) {
+      const card = createUnitCard("player2", i);
+      p2Row.addControl(card, 0, i);
+    }
+  }
+
+  function createTeamHeader(playerId: "player1" | "player2", label: string): Rectangle {
+    const header = new Rectangle(`${playerId}Header`);
+    header.width = "95%";
+    header.height = "50px";
+    header.thickness = 0;
+    header.paddingTop = "10px";
+
+    const headerGrid = new Grid(`${playerId}HeaderGrid`);
+    headerGrid.width = "100%";
+    headerGrid.height = "100%";
+    headerGrid.addColumnDefinition(0.3);
+    headerGrid.addColumnDefinition(0.7);
+    headerGrid.addRowDefinition(1);
+    header.addControl(headerGrid);
+
+    const teamColor = playerId === "player1" ? selections.player1TeamColor : selections.player2TeamColor;
+
+    const nameText = new TextBlock();
+    nameText.text = label;
+    nameText.color = teamColor || COLORS.textPrimary;
+    nameText.fontSize = 24;
+    nameText.fontFamily = "'Bebas Neue', sans-serif";
+    nameText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    nameText.paddingLeft = "10px";
+    headerGrid.addControl(nameText, 0, 0);
+
+    // Team colors
+    const colorRow = new StackPanel();
+    colorRow.isVertical = false;
+    colorRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    colorRow.paddingRight = "10px";
+    headerGrid.addControl(colorRow, 0, 1);
+
+    const swatches: Rectangle[] = [];
+
+    const getOtherColor = (): string => {
+      return playerId === "player1" ? selections.player2TeamColor! : selections.player1TeamColor!;
+    };
+
+    const getThisColor = (): string => {
+      return playerId === "player1" ? selections.player1TeamColor! : selections.player2TeamColor!;
+    };
+
+    TEAM_COLORS.forEach((tc) => {
+      const swatch = new Rectangle();
+      swatch.width = "24px";
+      swatch.height = "24px";
+      swatch.background = tc.hex;
+      swatch.cornerRadius = 4;
+      swatch.paddingLeft = "2px";
+      swatch.paddingRight = "2px";
+
+      const isSelected = getThisColor() === tc.hex;
+      const isDisabled = getOtherColor() === tc.hex;
+      swatch.thickness = isSelected ? 3 : 1;
+      swatch.color = isSelected ? "white" : COLORS.borderWarm;
+      swatch.alpha = isDisabled ? 0.3 : 1;
+
+      swatch.onPointerClickObservable.add(() => {
+        if (getOtherColor() === tc.hex) return;
+        if (playerId === "player1") {
+          selections.player1TeamColor = tc.hex;
+        } else {
+          selections.player2TeamColor = tc.hex;
+        }
+        nameText.color = tc.hex;
+        refreshSwatches();
+        previewRefreshCallbacks[playerId].forEach(cb => cb());
+      });
+
+      swatches.push(swatch);
+      colorRow.addControl(swatch);
+    });
+
+    const refreshSwatches = (): void => {
+      TEAM_COLORS.forEach((tc, i) => {
+        const s = swatches[i];
+        const isSelected = getThisColor() === tc.hex;
+        const isDisabled = getOtherColor() === tc.hex;
+        s.thickness = isSelected ? 3 : 1;
+        s.color = isSelected ? "white" : COLORS.borderWarm;
+        s.alpha = isDisabled ? 0.3 : 1;
+      });
+    };
+
+    return header;
+  }
+
+  function createUnitCard(playerId: "player1" | "player2", unitIndex: number): Rectangle {
+    const key = `${playerId}_${unitIndex}`;
+    const state = unitStates[key];
+
+    const cardHeight = isMobile ? 320 : "100%";
+    const cardWidth = isMobile ? "95%" : "95%";
+
+    const card = new Rectangle(`card_${key}`);
+    card.width = cardWidth;
+    card.height = typeof cardHeight === "number" ? `${cardHeight}px` : cardHeight;
+    card.background = COLORS.bgPanel;
+    card.cornerRadius = 8;
+    card.thickness = 1;
+    card.color = COLORS.borderWarm;
+    card.paddingTop = "10px";
+    card.paddingBottom = "10px";
+    card.paddingLeft = "5px";
+    card.paddingRight = "5px";
+
+    const cardStack = new StackPanel(`cardStack_${key}`);
+    cardStack.width = "100%";
+    cardStack.isVertical = true;
+    card.addControl(cardStack);
+
+    // Preview container
+    const previewSize = isMobile ? 140 : Math.min(150, screenHeight * 0.18);
+    const previewContainer = new Rectangle(`preview_${key}`);
+    previewContainer.width = `${previewSize}px`;
+    previewContainer.height = `${previewSize}px`;
+    previewContainer.background = COLORS.bgPreview;
+    previewContainer.cornerRadius = 8;
+    previewContainer.thickness = 0;
+    cardStack.addControl(previewContainer);
+
+    // Symbol + Class name
+    const titleText = new TextBlock(`title_${key}`);
+    titleText.text = `${UNIT_DESIGNATIONS[unitIndex]} ${CLASS_INFO[state.selectedClass].name}`;
+    titleText.color = COLORS.accentOrange;
+    titleText.fontSize = isMobile ? 20 : 18;
+    titleText.fontFamily = "'Bebas Neue', sans-serif";
+    titleText.height = "30px";
+    titleText.paddingTop = "8px";
+    cardStack.addControl(titleText);
+
+    // Description
+    const descText = new TextBlock(`desc_${key}`);
+    descText.text = getUnitDescription(state.selectedClass, state.selectedBoost, state.selectedStyle);
+    descText.color = COLORS.textSecondary;
+    descText.fontSize = isMobile ? 11 : 10;
+    descText.textWrapping = true;
+    descText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    descText.height = isMobile ? "100px" : "90px";
+    descText.paddingLeft = "10px";
+    descText.paddingRight = "10px";
+    descText.paddingTop = "5px";
+    cardStack.addControl(descText);
+
+    // Customize button
+    const customizeBtn = Button.CreateSimpleButton(`customize_${key}`, "Customize");
+    customizeBtn.width = "80%";
+    customizeBtn.height = `${buttonHeight}px`;
+    customizeBtn.background = COLORS.bgButton;
+    customizeBtn.color = COLORS.textPrimary;
+    customizeBtn.cornerRadius = 6;
+    customizeBtn.fontSize = fontSize;
+    customizeBtn.onPointerEnterObservable.add(() => {
+      customizeBtn.background = COLORS.bgButtonHover;
+    });
+    customizeBtn.onPointerOutObservable.add(() => {
+      customizeBtn.background = COLORS.bgButton;
+    });
+    customizeBtn.onPointerClickObservable.add(() => {
+      openCustomizeEditor(playerId, unitIndex);
+    });
+    cardStack.addControl(customizeBtn);
+
+    // Update callback for this card
+    const updateCard = (): void => {
+      const s = unitStates[key];
+      titleText.text = `${UNIT_DESIGNATIONS[unitIndex]} ${CLASS_INFO[s.selectedClass].name}`;
+      descText.text = getUnitDescription(s.selectedClass, s.selectedBoost, s.selectedStyle);
+    };
+    cardUpdateCallbacks[playerId].push(updateCard);
+
+    // Setup RTT preview
+    setupCardPreview(previewContainer, playerId, unitIndex);
+
+    return card;
+  }
+
+  // ============================================
+  // RTT PREVIEW SYSTEM
+  // ============================================
+
+  function setupCardPreview(container: Rectangle, playerId: string, unitIndex: number): void {
+    const key = `${playerId}_${unitIndex}`;
+    const rttSize = 256;
+
+    const rtt = new RenderTargetTexture(`rtt_${key}`, rttSize, scene, false);
+    rtt.clearColor = hexToColor4(COLORS.bgPreview);
+    scene.customRenderTargets.push(rtt);
+
+    const previewCamera = new ArcRotateCamera(
+      `cam_${key}`,
+      Math.PI / 2 + 0.2,
+      Math.PI / 2.3,
+      2.8,
+      new Vector3(0, 0.95, 0),
+      scene
+    );
+    rtt.activeCamera = previewCamera;
+
+    // Force square aspect ratio
+    const originalGetEngine = previewCamera.getEngine.bind(previewCamera);
+    previewCamera.getEngine = () => {
+      const eng = originalGetEngine();
+      return { ...eng, getAspectRatio: () => 1 } as any;
+    };
+
+    const layerMask = 0x10000000 << (playerId === "player1" ? unitIndex : unitIndex + 3);
+    previewCamera.layerMask = layerMask;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = rttSize;
+    canvas.height = rttSize;
+    const ctx = canvas.getContext("2d")!;
+
+    const loadingText = new TextBlock();
+    loadingText.text = "Loading...";
+    loadingText.color = "#666666";
+    loadingText.fontSize = 11;
+    container.addControl(loadingText);
+
+    const previewImage = new Image(`img_${key}`, "");
+    previewImage.stretch = Image.STRETCH_UNIFORM;
+    previewImage.width = "100%";
+    previewImage.height = "100%";
+    previewImage.alpha = 0;
+    container.addControl(previewImage);
+
+    let frameCount = 0;
+    let previewDirty = 30;
+    let previewModelLoaded = false;
+
+    rtt.onAfterRenderObservable.add(() => {
+      if (previewDirty <= 0 || !previewModelLoaded) return;
+
+      frameCount++;
+      if (frameCount % 2 !== 0) return;
+
+      previewDirty--;
+
+      rtt.readPixels()?.then((buffer) => {
+        if (!buffer) return;
+        const pixels = new Uint8Array(buffer.buffer);
+        const imageData = ctx.createImageData(rttSize, rttSize);
+
+        for (let y = 0; y < rttSize; y++) {
+          for (let x = 0; x < rttSize; x++) {
+            const srcIdx = ((rttSize - 1 - y) * rttSize + x) * 4;
+            const dstIdx = (y * rttSize + x) * 4;
+            imageData.data[dstIdx] = pixels[srcIdx];
+            imageData.data[dstIdx + 1] = pixels[srcIdx + 1];
+            imageData.data[dstIdx + 2] = pixels[srcIdx + 2];
+            imageData.data[dstIdx + 3] = pixels[srcIdx + 3];
+          }
+        }
+        ctx.putImageData(imageData, 0, 0);
+        previewImage.source = canvas.toDataURL();
+        if (previewImage.alpha < 1) {
+          previewImage.alpha = 1;
+          loadingText.isVisible = false;
+        }
+      });
+    });
+
+    let loadedModelKey = "";
+    let unitPreviewMesh: AbstractMesh | null = null;
+    let unitPreviewMeshes: AbstractMesh[] = [];
+    let unitPreviewAnims: AnimationGroup[] = [];
+
+    const updatePreviewAppearance = (): void => {
+      if (unitPreviewMeshes.length === 0 || !unitPreviewMesh) return;
+
+      const state = unitStates[key];
+      const customization = state.customization;
+      const headIndex = customization.head;
+      const isMelee = state.selectedStyle === "melee";
+      const isRightHanded = customization.handedness === "right";
+
+      const teamColorHex = playerId === "player1" ? selections.player1TeamColor : selections.player2TeamColor;
+      const teamColor = hexToColor3(teamColorHex || "#ff0000");
+
+      const currentScale = unitPreviewMesh.scaling;
+      unitPreviewMesh.scaling.x = isRightHanded ? -Math.abs(currentScale.x) : Math.abs(currentScale.x);
+
+      unitPreviewMeshes.forEach(m => {
+        if (m.material) {
+          const mat = m.material as PBRMaterial;
+          const matName = mat.name;
+
+          if (matName === "TeamMain") {
+            mat.albedoColor = teamColor;
+          } else if (matName === "MainSkin") {
+            mat.albedoColor = hexToColor3(SKIN_TONES[customization.skinTone] || SKIN_TONES[4]);
+          } else if (matName === "MainHair") {
+            mat.albedoColor = hexToColor3(HAIR_COLORS[customization.hairColor] || HAIR_COLORS[0]);
+          } else if (matName === "MainEye") {
+            mat.albedoColor = hexToColor3(EYE_COLORS[customization.eyeColor] || EYE_COLORS[2]);
+          }
+        }
+
+        for (let i = 0; i < 4; i++) {
+          const headName = `Head_00${i + 1}`;
+          if (m.name.includes(headName)) {
+            m.setEnabled(i === headIndex);
+          }
+        }
+
+        const meshNameLower = m.name.toLowerCase();
+        if (meshNameLower.includes("sword")) {
+          m.setEnabled(isMelee);
+        } else if (meshNameLower.includes("pistol")) {
+          m.setEnabled(!isMelee);
+        }
+      });
+
+      unitPreviewAnims.forEach(ag => ag.stop());
+      const idleAnim = isMelee
+        ? unitPreviewAnims.find(ag => ag.name === "Idle_Sword")
+        : unitPreviewAnims.find(ag => ag.name === "Idle_Gun");
+      if (idleAnim) {
+        idleAnim.start(true);
+      }
+
+      previewDirty = 30;
+    };
+
+    const loadUnitPreview = (): void => {
+      const state = unitStates[key];
+      const classData = getClassData(state.selectedClass);
+      const body = state.customization.body;
+      const gender = body === "male" ? "m" : "f";
+      const modelKey = `${classData.modelFile}_${gender}`;
+
+      if (modelKey === loadedModelKey && unitPreviewMesh) {
+        updatePreviewAppearance();
+        return;
+      }
+
+      previewModelLoaded = false;
+      previewImage.alpha = 0;
+      loadingText.isVisible = true;
+
+      if (unitPreviewMesh) {
+        if (rtt.renderList) {
+          rtt.renderList.length = 0;
+        }
+        unitPreviewMesh.dispose();
+        unitPreviewMesh = null;
+        unitPreviewMeshes = [];
+      }
+      unitPreviewAnims.forEach(a => a.stop());
+      unitPreviewAnims = [];
+
+      const modelPath = `${import.meta.env.BASE_URL}models/${modelKey}.glb`;
+      loadedModelKey = modelKey;
+
+      SceneLoader.ImportMeshAsync("", modelPath, "", scene).then((result) => {
+        unitPreviewMesh = result.meshes[0];
+        unitPreviewMeshes = result.meshes;
+        unitPreviewMesh.position = new Vector3(0, 0, 0);
+        unitPreviewMesh.scaling.setAll(0.9);
+
+        result.meshes.forEach(m => {
+          m.layerMask = layerMask;
+          if (m.material) {
+            const mat = m.material as PBRMaterial;
+            mat.unlit = true;
+          }
+        });
+
+        if (rtt.renderList) {
+          rtt.renderList.length = 0;
+          result.meshes.forEach(m => rtt.renderList!.push(m));
+        }
+
+        unitPreviewAnims = result.animationGroups;
+        previewModelLoaded = true;
+        updatePreviewAppearance();
+      });
+    };
+
+    // Register callbacks
+    previewRefreshCallbacks[playerId as "player1" | "player2"].push(updatePreviewAppearance);
+    previewReloadCallbacks[playerId as "player1" | "player2"].push(loadUnitPreview);
+
+    // Initial load
+    loadUnitPreview();
+  }
+
+  // ============================================
+  // CUSTOMIZE EDITOR (Full Overlay)
+  // ============================================
+
+  const customizeOverlay = new Rectangle("customizeOverlay");
+  customizeOverlay.width = "100%";
+  customizeOverlay.height = "100%";
+  customizeOverlay.background = COLORS.bgDeep;
+  customizeOverlay.thickness = 0;
+  customizeOverlay.isVisible = false;
+  customizeOverlay.zIndex = 500;
+  gui.addControl(customizeOverlay);
+
+  // Editor state
+  let editingPlayerId: "player1" | "player2" = "player1";
+  let editingUnitIndex = 0;
+  let editingState: UnitState | null = null;
+  // originalState removed - was reserved for cancel/undo but never read
+
+  // Editor RTT preview
   const editorRttSize = 512;
   const editorRtt = new RenderTargetTexture("editorRtt", editorRttSize, scene, false);
-  editorRtt.clearColor = hexToColor4(COLORS.bgPreview); // Dark warm background
+  editorRtt.clearColor = hexToColor4(COLORS.bgPreview);
   scene.customRenderTargets.push(editorRtt);
 
-  // Preview camera for editor
   const editorPreviewCamera = new ArcRotateCamera(
     "editorPreviewCam",
     Math.PI / 2 + 0.2,
@@ -593,35 +1011,33 @@ export function createLoadoutScene(
   );
   editorRtt.activeCamera = editorPreviewCamera;
 
-  // Force square aspect ratio
   const editorOriginalGetEngine = editorPreviewCamera.getEngine.bind(editorPreviewCamera);
   editorPreviewCamera.getEngine = () => {
     const eng = editorOriginalGetEngine();
     return { ...eng, getAspectRatio: () => 1 } as any;
   };
 
-  // Unique layer mask for editor preview
   const editorLayerMask = 0x20000000;
   editorPreviewCamera.layerMask = editorLayerMask;
 
-  // Canvas for RTT pixels
   const editorCanvas = document.createElement("canvas");
   editorCanvas.width = editorRttSize;
   editorCanvas.height = editorRttSize;
   const editorCtx = editorCanvas.getContext("2d")!;
 
-  // GUI Image for editor preview (will be added to previewArea)
   const editorPreviewImage = new Image("editorPreviewImg", "");
   editorPreviewImage.stretch = Image.STRETCH_UNIFORM;
 
-  // Update canvas from RTT - continuously while editor is open (for looping animation)
+  let editorPreviewMesh: AbstractMesh | null = null;
+  let editorPreviewMeshes: AbstractMesh[] = [];
+  let editorPreviewAnimations: AnimationGroup[] = [];
+  let editorLoadedModelKey = "";
+
   let editorFrameCount = 0;
   editorRtt.onAfterRenderObservable.add(() => {
-    // Only update if editor is visible
-    if (!appearanceOverlay.isVisible) return;
+    if (!customizeOverlay.isVisible) return;
 
     editorFrameCount++;
-    // Throttle to every 3rd frame to reduce CPU while still showing smooth animation
     if (editorFrameCount % 3 !== 0) return;
 
     editorRtt.readPixels()?.then((buffer) => {
@@ -644,56 +1060,149 @@ export function createLoadoutScene(
     });
   });
 
-  function createAppearanceOption(
+  // Editor layout
+  const editorGrid = new Grid("editorGrid");
+  editorGrid.width = "100%";
+  editorGrid.height = "100%";
+
+  if (isMobile) {
+    editorGrid.addRowDefinition(0.35);
+    editorGrid.addRowDefinition(0.65);
+    editorGrid.addColumnDefinition(1);
+  } else {
+    editorGrid.addRowDefinition(1);
+    editorGrid.addColumnDefinition(0.4);
+    editorGrid.addColumnDefinition(0.6);
+  }
+  customizeOverlay.addControl(editorGrid);
+
+  // Preview area
+  const previewArea = new Rectangle("editorPreviewArea");
+  previewArea.background = COLORS.bgPreview;
+  previewArea.thickness = 0;
+
+  const previewSize = isMobile ? Math.min(screenWidth * 0.8, screenHeight * 0.3) : screenHeight * 0.7;
+  editorPreviewImage.width = `${previewSize}px`;
+  editorPreviewImage.height = `${previewSize}px`;
+  previewArea.addControl(editorPreviewImage);
+
+  if (isMobile) {
+    editorGrid.addControl(previewArea, 0, 0);
+  } else {
+    editorGrid.addControl(previewArea, 0, 1);
+  }
+
+  // Options panel (scrollable)
+  const optionsScroll = new ScrollViewer("editorOptionsScroll");
+  optionsScroll.width = "100%";
+  optionsScroll.height = "100%";
+  optionsScroll.thickness = 0;
+  optionsScroll.barSize = 8;
+  optionsScroll.barColor = COLORS.borderWarm;
+
+  if (isMobile) {
+    editorGrid.addControl(optionsScroll, 1, 0);
+  } else {
+    editorGrid.addControl(optionsScroll, 0, 0);
+  }
+
+  const optionsStack = new StackPanel("editorOptionsStack");
+  optionsStack.width = "100%";
+  optionsStack.isVertical = true;
+  optionsStack.paddingBottom = "20px";
+  optionsScroll.addControl(optionsStack);
+
+  // Header with back button and title
+  const headerRow = new StackPanel("editorHeader");
+  headerRow.isVertical = false;
+  headerRow.width = "100%";
+  headerRow.height = "50px";
+  headerRow.paddingLeft = "10px";
+  headerRow.paddingRight = "10px";
+  headerRow.paddingTop = "10px";
+  optionsStack.addControl(headerRow);
+
+  const backBtn = Button.CreateSimpleButton("backBtn", "← Back");
+  backBtn.width = "80px";
+  backBtn.height = "36px";
+  backBtn.background = COLORS.bgButton;
+  backBtn.color = COLORS.textPrimary;
+  backBtn.cornerRadius = 4;
+  backBtn.fontSize = smallFontSize;
+  backBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+  backBtn.onPointerClickObservable.add(() => closeCustomizeEditor(false));
+  headerRow.addControl(backBtn);
+
+  const editorTitle = new TextBlock("editorTitle");
+  editorTitle.text = "Δ Customize";
+  editorTitle.color = COLORS.accentOrange;
+  editorTitle.fontSize = 20;
+  editorTitle.fontFamily = "'Bebas Neue', sans-serif";
+  editorTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  headerRow.addControl(editorTitle);
+
+  // Spacer to balance the back button
+  const headerSpacer = new Rectangle();
+  headerSpacer.width = "80px";
+  headerSpacer.height = "1px";
+  headerSpacer.thickness = 0;
+  headerRow.addControl(headerSpacer);
+
+  // Option button tracking
+  const editorOptionButtons: Map<string, Button[]> = new Map();
+  const editorColorSwatches: Map<string, Rectangle[]> = new Map();
+
+  // Helper to create option row
+  function createEditorOption(
     label: string,
     options: string[],
-    defaultIdx: number,
+    getValue: () => number,
     onChange: (idx: number) => void
   ): StackPanel {
-    const container = new StackPanel(`appearance_${label}`);
+    const container = new StackPanel(`editor_${label}`);
     container.width = "100%";
     container.isVertical = true;
-    container.paddingTop = isMobile ? "6px" : "12px";
-    container.paddingBottom = isMobile ? "6px" : "12px";
-    container.paddingLeft = isMobile ? "15px" : "25px";
-    container.paddingRight = isMobile ? "15px" : "25px";
+    container.paddingTop = "8px";
+    container.paddingBottom = "8px";
+    container.paddingLeft = "15px";
+    container.paddingRight = "15px";
 
     const labelText = new TextBlock();
     labelText.text = label.toUpperCase();
     labelText.color = COLORS.textMuted;
-    labelText.fontSize = isMobile ? 10 : smallFontSize;
-    labelText.height = isMobile ? "18px" : "24px";
+    labelText.fontSize = smallFontSize;
+    labelText.height = "24px";
     labelText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     container.addControl(labelText);
 
-    const editorBtnHeight = isMobile ? 32 : smallButtonHeight;
     const btnRow = new StackPanel();
     btnRow.isVertical = false;
     btnRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    btnRow.height = `${editorBtnHeight + 4}px`;
+    btnRow.height = `${smallButtonHeight + 4}px`;
     container.addControl(btnRow);
 
     const buttons: Button[] = [];
     options.forEach((opt, i) => {
       const btn = Button.CreateSimpleButton(`${label}_${i}`, opt);
-      btn.width = `${Math.max(isMobile ? 50 : 60, opt.length * (isMobile ? 10 : 12) + 16)}px`;
-      btn.height = `${editorBtnHeight}px`;
+      btn.width = `${Math.max(60, opt.length * 10 + 20)}px`;
+      btn.height = `${smallButtonHeight}px`;
       btn.color = COLORS.textPrimary;
-      btn.background = i === defaultIdx ? COLORS.selected : COLORS.bgButton;
+      btn.background = getValue() === i ? COLORS.selected : COLORS.bgButton;
       btn.cornerRadius = 4;
-      btn.fontSize = isMobile ? 10 : smallFontSize;
+      btn.fontSize = smallFontSize;
       btn.paddingLeft = "3px";
       btn.paddingRight = "3px";
       btn.thickness = 1;
 
       btn.onPointerEnterObservable.add(() => {
-        if (buttons.indexOf(btn) !== buttons.findIndex(b => b.background === COLORS.selected)) {
+        if (btn.background !== COLORS.selected) {
           btn.background = COLORS.bgButtonHover;
         }
       });
       btn.onPointerOutObservable.add(() => {
-        const isSelected = btn.background === COLORS.selected;
-        if (!isSelected) btn.background = COLORS.bgButton;
+        if (btn.background !== COLORS.selected) {
+          btn.background = COLORS.bgButton;
+        }
       });
 
       btn.onPointerClickObservable.add(() => {
@@ -708,48 +1217,47 @@ export function createLoadoutScene(
       btnRow.addControl(btn);
     });
 
-    appearanceOptionButtons.set(label, buttons);
+    editorOptionButtons.set(label, buttons);
     return container;
   }
 
-  function createColorOption(
+  function createEditorColorOption(
     label: string,
     colors: readonly string[],
-    defaultIdx: number,
+    getValue: () => number,
     onChange: (idx: number) => void
   ): StackPanel {
-    const container = new StackPanel(`appearance_${label}`);
+    const container = new StackPanel(`editor_${label}`);
     container.width = "100%";
     container.isVertical = true;
-    container.paddingTop = isMobile ? "6px" : "12px";
-    container.paddingBottom = isMobile ? "6px" : "12px";
-    container.paddingLeft = isMobile ? "15px" : "25px";
-    container.paddingRight = isMobile ? "15px" : "25px";
+    container.paddingTop = "8px";
+    container.paddingBottom = "8px";
+    container.paddingLeft = "15px";
+    container.paddingRight = "15px";
 
     const labelText = new TextBlock();
     labelText.text = label.toUpperCase();
     labelText.color = COLORS.textMuted;
-    labelText.fontSize = isMobile ? 10 : smallFontSize;
-    labelText.height = isMobile ? "18px" : "24px";
+    labelText.fontSize = smallFontSize;
+    labelText.height = "24px";
     labelText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     container.addControl(labelText);
 
     const swatchRow = new StackPanel();
     swatchRow.isVertical = false;
     swatchRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    const swatchSize = isMobile ? 26 : 28;
-    swatchRow.height = `${swatchSize + 4}px`;
+    swatchRow.height = "32px";
     container.addControl(swatchRow);
 
     const swatches: Rectangle[] = [];
 
     colors.forEach((color, i) => {
       const swatch = new Rectangle();
-      swatch.width = `${swatchSize}px`;
-      swatch.height = `${swatchSize}px`;
+      swatch.width = "28px";
+      swatch.height = "28px";
       swatch.background = color;
-      swatch.thickness = i === defaultIdx ? 3 : 1;
-      swatch.color = i === defaultIdx ? COLORS.accentOrange : COLORS.borderWarm;
+      swatch.thickness = getValue() === i ? 3 : 1;
+      swatch.color = getValue() === i ? COLORS.accentOrange : COLORS.borderWarm;
       swatch.cornerRadius = 4;
       swatch.paddingLeft = "2px";
       swatch.paddingRight = "2px";
@@ -767,26 +1275,286 @@ export function createLoadoutScene(
       swatchRow.addControl(swatch);
     });
 
-    appearanceColorSwatches.set(label, swatches);
+    editorColorSwatches.set(label, swatches);
     return container;
   }
 
-  // Update editor preview appearance
+  // Add CLASS option
+  optionsStack.addControl(createEditorOption(
+    "Class",
+    ["Soldier", "Operator", "Medic"],
+    () => ALL_CLASSES.indexOf(editingState?.selectedClass || "soldier"),
+    (idx) => {
+      if (editingState) {
+        const newClass = ALL_CLASSES[idx];
+        editingState.selectedClass = newClass;
+        // If not previously customized, randomize appearance
+        if (!editingState.hasBeenCustomized) {
+          editingState.customization = randomizeAppearance(editingState.selectedStyle);
+          refreshAllEditorOptions();
+        }
+      }
+    }
+  ));
+
+  // Add BOOST option
+  optionsStack.addControl(createEditorOption(
+    "Boost",
+    BOOST_INFO.map(b => b.name),
+    () => editingState?.selectedBoost ?? 0,
+    (idx) => { if (editingState) editingState.selectedBoost = idx; }
+  ));
+
+  // Add WEAPON option
+  optionsStack.addControl(createEditorOption(
+    "Weapon",
+    ["Ranged", "Melee"],
+    () => editingState?.selectedStyle === "melee" ? 1 : 0,
+    (idx) => {
+      if (editingState) {
+        editingState.selectedStyle = idx === 1 ? "melee" : "ranged";
+        editingState.customization.combatStyle = editingState.selectedStyle;
+      }
+    }
+  ));
+
+  // Separator
+  const editorSeparator = new Rectangle("editorSeparator");
+  editorSeparator.width = "90%";
+  editorSeparator.height = "1px";
+  editorSeparator.background = COLORS.borderWarm;
+  editorSeparator.thickness = 0;
+  optionsStack.addControl(editorSeparator);
+
+  // Add BODY option
+  optionsStack.addControl(createEditorOption(
+    "Body",
+    ["Male", "Female"],
+    () => editingState?.customization.body === "female" ? 1 : 0,
+    (idx) => {
+      if (editingState) {
+        editingState.customization.body = idx === 1 ? "female" : "male";
+        editorLoadedModelKey = ""; // Force model reload
+      }
+    }
+  ));
+
+  // Add HEAD option
+  optionsStack.addControl(createEditorOption(
+    "Head",
+    ["1", "2", "3", "4"],
+    () => editingState?.customization.head ?? 0,
+    (idx) => { if (editingState) editingState.customization.head = idx; }
+  ));
+
+  // Add HANDEDNESS option
+  optionsStack.addControl(createEditorOption(
+    "Handedness",
+    ["Right", "Left"],
+    () => editingState?.customization.handedness === "left" ? 1 : 0,
+    (idx) => { if (editingState) editingState.customization.handedness = idx === 1 ? "left" : "right"; }
+  ));
+
+  // Add color options
+  optionsStack.addControl(createEditorColorOption(
+    "Skin Tone",
+    SKIN_TONES,
+    () => editingState?.customization.skinTone ?? 4,
+    (idx) => { if (editingState) editingState.customization.skinTone = idx; }
+  ));
+
+  optionsStack.addControl(createEditorColorOption(
+    "Hair Color",
+    HAIR_COLORS,
+    () => editingState?.customization.hairColor ?? 0,
+    (idx) => { if (editingState) editingState.customization.hairColor = idx; }
+  ));
+
+  optionsStack.addControl(createEditorColorOption(
+    "Eye Color",
+    EYE_COLORS,
+    () => editingState?.customization.eyeColor ?? 2,
+    (idx) => { if (editingState) editingState.customization.eyeColor = idx; }
+  ));
+
+  // Save/Cancel buttons
+  const buttonRow = new StackPanel("editorButtons");
+  buttonRow.isVertical = false;
+  buttonRow.height = `${buttonHeight + 20}px`;
+  buttonRow.paddingTop = "15px";
+  optionsStack.addControl(buttonRow);
+
+  const saveBtn = Button.CreateSimpleButton("saveBtn", "Save");
+  saveBtn.width = "100px";
+  saveBtn.height = `${buttonHeight}px`;
+  saveBtn.background = COLORS.success;
+  saveBtn.color = COLORS.textPrimary;
+  saveBtn.cornerRadius = 6;
+  saveBtn.fontSize = fontSize;
+  saveBtn.onPointerClickObservable.add(() => closeCustomizeEditor(true));
+  buttonRow.addControl(saveBtn);
+
+  const btnSpacer = new Rectangle();
+  btnSpacer.width = "20px";
+  btnSpacer.height = "1px";
+  btnSpacer.thickness = 0;
+  buttonRow.addControl(btnSpacer);
+
+  const cancelBtn = Button.CreateSimpleButton("cancelBtn", "Cancel");
+  cancelBtn.width = "100px";
+  cancelBtn.height = `${buttonHeight}px`;
+  cancelBtn.background = COLORS.bgButton;
+  cancelBtn.color = COLORS.textPrimary;
+  cancelBtn.cornerRadius = 6;
+  cancelBtn.fontSize = fontSize;
+  cancelBtn.onPointerClickObservable.add(() => closeCustomizeEditor(false));
+  buttonRow.addControl(cancelBtn);
+
+  function refreshAllEditorOptions(): void {
+    if (!editingState) return;
+
+    // Refresh class buttons
+    const classButtons = editorOptionButtons.get("Class");
+    if (classButtons) {
+      const classIdx = ALL_CLASSES.indexOf(editingState.selectedClass);
+      classButtons.forEach((b, i) => {
+        b.background = i === classIdx ? COLORS.selected : COLORS.bgButton;
+      });
+    }
+
+    // Refresh boost buttons
+    const boostButtons = editorOptionButtons.get("Boost");
+    if (boostButtons) {
+      boostButtons.forEach((b, i) => {
+        b.background = i === editingState!.selectedBoost ? COLORS.selected : COLORS.bgButton;
+      });
+    }
+
+    // Refresh weapon buttons
+    const weaponButtons = editorOptionButtons.get("Weapon");
+    if (weaponButtons) {
+      const weaponIdx = editingState.selectedStyle === "melee" ? 1 : 0;
+      weaponButtons.forEach((b, i) => {
+        b.background = i === weaponIdx ? COLORS.selected : COLORS.bgButton;
+      });
+    }
+
+    // Refresh body buttons
+    const bodyButtons = editorOptionButtons.get("Body");
+    if (bodyButtons) {
+      const bodyIdx = editingState.customization.body === "female" ? 1 : 0;
+      bodyButtons.forEach((b, i) => {
+        b.background = i === bodyIdx ? COLORS.selected : COLORS.bgButton;
+      });
+    }
+
+    // Refresh head buttons
+    const headButtons = editorOptionButtons.get("Head");
+    if (headButtons) {
+      headButtons.forEach((b, i) => {
+        b.background = i === editingState!.customization.head ? COLORS.selected : COLORS.bgButton;
+      });
+    }
+
+    // Refresh handedness buttons
+    const handButtons = editorOptionButtons.get("Handedness");
+    if (handButtons) {
+      const handIdx = editingState.customization.handedness === "left" ? 1 : 0;
+      handButtons.forEach((b, i) => {
+        b.background = i === handIdx ? COLORS.selected : COLORS.bgButton;
+      });
+    }
+
+    // Refresh color swatches
+    const skinSwatches = editorColorSwatches.get("Skin Tone");
+    if (skinSwatches) {
+      skinSwatches.forEach((s, i) => {
+        s.thickness = i === editingState!.customization.skinTone ? 3 : 1;
+        s.color = i === editingState!.customization.skinTone ? COLORS.accentOrange : COLORS.borderWarm;
+      });
+    }
+
+    const hairSwatches = editorColorSwatches.get("Hair Color");
+    if (hairSwatches) {
+      hairSwatches.forEach((s, i) => {
+        s.thickness = i === editingState!.customization.hairColor ? 3 : 1;
+        s.color = i === editingState!.customization.hairColor ? COLORS.accentOrange : COLORS.borderWarm;
+      });
+    }
+
+    const eyeSwatches = editorColorSwatches.get("Eye Color");
+    if (eyeSwatches) {
+      eyeSwatches.forEach((s, i) => {
+        s.thickness = i === editingState!.customization.eyeColor ? 3 : 1;
+        s.color = i === editingState!.customization.eyeColor ? COLORS.accentOrange : COLORS.borderWarm;
+      });
+    }
+  }
+
+  function updateEditorPreview(): void {
+    if (!editingState) return;
+
+    const classData = getClassData(editingState.selectedClass);
+    const body = editingState.customization.body;
+    const gender = body === "male" ? "m" : "f";
+    const modelKey = `${classData.modelFile}_${gender}`;
+
+    if (modelKey !== editorLoadedModelKey) {
+      // Load new model
+      if (editorPreviewMesh) {
+        if (editorRtt.renderList) {
+          editorRtt.renderList.length = 0;
+        }
+        editorPreviewMesh.dispose();
+        editorPreviewMesh = null;
+        editorPreviewMeshes = [];
+      }
+      editorPreviewAnimations.forEach(a => a.stop());
+      editorPreviewAnimations = [];
+
+      const modelPath = `${import.meta.env.BASE_URL}models/${modelKey}.glb`;
+      editorLoadedModelKey = modelKey;
+
+      SceneLoader.ImportMeshAsync("", modelPath, "", scene).then((result) => {
+        editorPreviewMesh = result.meshes[0];
+        editorPreviewMeshes = result.meshes;
+        editorPreviewMesh.position = new Vector3(0, 0, 0);
+        editorPreviewMesh.scaling.setAll(0.9);
+
+        result.meshes.forEach(m => {
+          m.layerMask = editorLayerMask;
+          if (m.material) {
+            const mat = m.material as PBRMaterial;
+            mat.unlit = true;
+          }
+        });
+
+        if (editorRtt.renderList) {
+          editorRtt.renderList.length = 0;
+          result.meshes.forEach(m => editorRtt.renderList!.push(m));
+        }
+
+        editorPreviewAnimations = result.animationGroups;
+        updateEditorPreviewAppearance();
+      });
+    } else {
+      updateEditorPreviewAppearance();
+    }
+  }
+
   function updateEditorPreviewAppearance(): void {
-    if (editorPreviewMeshes.length === 0 || !editorPreviewMesh) return;
+    if (editorPreviewMeshes.length === 0 || !editorPreviewMesh || !editingState) return;
 
-    const headIndex = editingCustomization.head;
-    const combatStyle = editingCustomization.combatStyle;
-    const isMelee = combatStyle === "melee";
-    const isRightHanded = editingCustomization.handedness === "right";
+    const customization = editingState.customization;
+    const headIndex = customization.head;
+    const isMelee = editingState.selectedStyle === "melee";
+    const isRightHanded = customization.handedness === "right";
 
-    // Get team color from editing unit
-    const teamColorHex = editingUnit?.playerId === "player1"
+    const teamColorHex = editingPlayerId === "player1"
       ? selections.player1TeamColor
       : selections.player2TeamColor;
     const teamColor = hexToColor3(teamColorHex || "#ff0000");
 
-    // Apply handedness by flipping X scale
     const currentScale = editorPreviewMesh.scaling;
     editorPreviewMesh.scaling.x = isRightHanded ? -Math.abs(currentScale.x) : Math.abs(currentScale.x);
 
@@ -795,19 +1563,17 @@ export function createLoadoutScene(
         const mat = m.material as PBRMaterial;
         const matName = mat.name;
 
-        // Apply colors based on material name
         if (matName === "TeamMain") {
           mat.albedoColor = teamColor;
         } else if (matName === "MainSkin") {
-          mat.albedoColor = hexToColor3(SKIN_TONES[editingCustomization.skinTone] || SKIN_TONES[4]);
+          mat.albedoColor = hexToColor3(SKIN_TONES[customization.skinTone] || SKIN_TONES[4]);
         } else if (matName === "MainHair") {
-          mat.albedoColor = hexToColor3(HAIR_COLORS[editingCustomization.hairColor] || HAIR_COLORS[0]);
+          mat.albedoColor = hexToColor3(HAIR_COLORS[customization.hairColor] || HAIR_COLORS[0]);
         } else if (matName === "MainEye") {
-          mat.albedoColor = hexToColor3(EYE_COLORS[editingCustomization.eyeColor] || EYE_COLORS[2]);
+          mat.albedoColor = hexToColor3(EYE_COLORS[customization.eyeColor] || EYE_COLORS[2]);
         }
       }
 
-      // Hide all heads except selected one
       for (let i = 0; i < 4; i++) {
         const headName = `Head_00${i + 1}`;
         if (m.name.includes(headName)) {
@@ -815,7 +1581,6 @@ export function createLoadoutScene(
         }
       }
 
-      // Show sword or pistol based on combat style
       const meshNameLower = m.name.toLowerCase();
       if (meshNameLower.includes("sword")) {
         m.setEnabled(isMelee);
@@ -824,7 +1589,6 @@ export function createLoadoutScene(
       }
     });
 
-    // Play correct idle animation
     editorPreviewAnimations.forEach(ag => ag.stop());
     const idleAnim = isMelee
       ? editorPreviewAnimations.find(ag => ag.name === "Idle_Sword")
@@ -834,420 +1598,58 @@ export function createLoadoutScene(
     }
   }
 
-  // Load editor preview model
-  function updateEditorPreview(): void {
-    if (!editingUnit) return;
+  function openCustomizeEditor(playerId: "player1" | "player2", unitIndex: number): void {
+    editingPlayerId = playerId;
+    editingUnitIndex = unitIndex;
+    const key = `${playerId}_${unitIndex}`;
 
-    const unitClass = editingUnit.selectionArray[editingUnit.unitIndex]?.unitClass || "soldier";
-    const classData = getClassData(unitClass);
-    const gender = editingCustomization.body === "male" ? "m" : "f";
-    const modelKey = `${classData.modelFile}_${gender}`;
+    // Deep copy the current state
+    const current = unitStates[key];
+    // Note: originalState backup removed - was for cancel/undo feature not yet implemented
+    editingState = {
+      selectedClass: current.selectedClass,
+      selectedBoost: current.selectedBoost,
+      selectedStyle: current.selectedStyle,
+      customization: { ...current.customization },
+      hasBeenCustomized: current.hasBeenCustomized,
+    };
 
-    // If same model, just update appearance
-    if (modelKey === editorLoadedModelKey && editorPreviewMesh) {
-      updateEditorPreviewAppearance();
-      return;
-    }
+    editorTitle.text = `${UNIT_DESIGNATIONS[unitIndex]} Customize`;
 
-    // Clean up existing model
-    if (editorPreviewMesh) {
-      if (editorRtt.renderList) {
-        editorRtt.renderList.length = 0;
-      }
-      editorPreviewMesh.dispose();
-      editorPreviewMesh = null;
-      editorPreviewMeshes = [];
-    }
-    editorPreviewAnimations.forEach(a => a.stop());
-    editorPreviewAnimations = [];
+    refreshAllEditorOptions();
 
-    const modelPath = `${import.meta.env.BASE_URL}models/${modelKey}.glb`;
-    editorLoadedModelKey = modelKey;
-
-    SceneLoader.ImportMeshAsync("", modelPath, "", scene).then((result) => {
-      editorPreviewMesh = result.meshes[0];
-      editorPreviewMeshes = result.meshes;
-      editorPreviewMesh.position = new Vector3(0, 0, 0);
-      editorPreviewMesh.scaling = new Vector3(1, 1, 1);
-      editorPreviewMesh.rotation = new Vector3(0, Math.PI * 0.1, 0);
-
-      // Set layer mask and add to RTT render list
-      result.meshes.forEach(m => {
-        m.layerMask = editorLayerMask;
-        editorRtt.renderList?.push(m);
-      });
-
-      // Store animations and update appearance
-      editorPreviewAnimations = result.animationGroups;
-      updateEditorPreviewAppearance();
-    }).catch((err) => {
-      console.warn("Failed to load editor preview:", err);
-    });
-  }
-
-  // Appearance overlay
-  const appearanceOverlay = new Rectangle("appearanceOverlay");
-  appearanceOverlay.width = "100%";
-  appearanceOverlay.height = "100%";
-  appearanceOverlay.background = COLORS.bgDeep;
-  appearanceOverlay.thickness = 0;
-  appearanceOverlay.isVisible = false;
-  appearanceOverlay.zIndex = 500;
-  gui.addControl(appearanceOverlay);
-
-  // Set the overlay check for main scroll (skips scrolling when editor is open)
-  mainScrollOverlayCheck = () => appearanceOverlay.isVisible;
-
-  // Layout structure differs by device:
-  // Mobile portrait: Sticky preview at top (35%), scrollable options below (65%)
-  // Tablet/Desktop: Side-by-side with options left, preview right (cropped to show center)
-  const overlayGrid = new Grid("overlayGrid");
-  overlayGrid.width = "100%";
-  overlayGrid.height = "100%";
-
-  // Calculate options panel width - needs to fit 10 color swatches (26px each) + padding
-  // Swatches: 10 * 30px = 300px, plus side padding ~50px = 350px minimum
-  const optionsPanelWidth = isTablet ? 360 : 400; // px
-
-  if (isMobile) {
-    // Mobile portrait: preview on top (sticky), options scroll below
-    overlayGrid.addColumnDefinition(1);
-    overlayGrid.addRowDefinition(0.35); // Preview - sticky
-    overlayGrid.addRowDefinition(0.65); // Options - scrollable
-  } else {
-    // Tablet/Desktop: fixed-width options on left, preview takes remaining space
-    overlayGrid.addColumnDefinition(optionsPanelWidth, true); // Options - fixed pixels
-    overlayGrid.addColumnDefinition(1); // Preview - takes rest
-    overlayGrid.addRowDefinition(1);
-  }
-  appearanceOverlay.addControl(overlayGrid);
-
-  // Options panel with scroll - use native ScrollViewer scrolling
-  const optionsPanel = new ScrollViewer("optionsScroll");
-  optionsPanel.width = "100%";
-  optionsPanel.height = "100%";
-  optionsPanel.thickness = 0;
-  optionsPanel.barSize = 8;
-  optionsPanel.barColor = COLORS.borderWarm;
-  optionsPanel.barBackground = "transparent";
-  optionsPanel.wheelPrecision = 100; // More responsive wheel scrolling
-  if (isMobile) {
-    overlayGrid.addControl(optionsPanel, 1, 0);
-  } else {
-    overlayGrid.addControl(optionsPanel, 0, 0);
-  }
-
-  const optionsStack = new StackPanel("optionsStack");
-  optionsStack.width = "100%";
-  optionsStack.isVertical = true;
-  optionsStack.paddingTop = isMobile ? "10px" : "30px";
-  optionsStack.paddingBottom = "40px";
-  optionsPanel.addControl(optionsStack);
-
-  // Touch-based drag-to-scroll using window events (more reliable on mobile)
-  let editorDragging = false;
-  let editorLastTouchY = 0;
-  let editorTouchStartedInOptions = false;
-
-  const editorTouchStart = (e: TouchEvent) => {
-    if (!appearanceOverlay.isVisible) return;
-
-    // Check if touch started in the options area (bottom 65% on mobile, left 50% on tablet/desktop)
-    const touch = e.touches[0];
-    const rect = engine.getRenderingCanvas()?.getBoundingClientRect();
-    if (!rect) return;
-
-    const touchX = touch.clientX - rect.left;
-    const touchY = touch.clientY - rect.top;
-    const canvasHeight = rect.height;
-    const canvasWidth = rect.width;
-
-    if (isMobile) {
-      // On mobile, options are in bottom 65%
-      editorTouchStartedInOptions = touchY > canvasHeight * 0.35;
-    } else {
-      // On tablet/desktop, options are on left 50%
-      editorTouchStartedInOptions = touchX < canvasWidth * 0.5;
-    }
-
-    if (editorTouchStartedInOptions) {
-      editorDragging = true;
-      editorLastTouchY = touch.clientY;
-    }
-  };
-
-  const editorTouchMove = (e: TouchEvent) => {
-    if (!editorDragging || !appearanceOverlay.isVisible) return;
-
-    const touch = e.touches[0];
-    const deltaY = editorLastTouchY - touch.clientY;
-    editorLastTouchY = touch.clientY;
-
-    const contentHeight = optionsStack.heightInPixels;
-    const viewportHeight = optionsPanel.heightInPixels;
-    const maxScroll = contentHeight - viewportHeight;
-
-    if (maxScroll > 0) {
-      const scrollDelta = deltaY / maxScroll;
-      const newScroll = Math.max(0, Math.min(1, optionsPanel.verticalBar.value + scrollDelta));
-      optionsPanel.verticalBar.value = newScroll;
-    }
-
-    // Prevent page scroll
-    e.preventDefault();
-  };
-
-  const editorTouchEnd = () => {
-    editorDragging = false;
-    editorTouchStartedInOptions = false;
-  };
-
-  window.addEventListener("touchstart", editorTouchStart, { passive: false });
-  window.addEventListener("touchmove", editorTouchMove, { passive: false });
-  window.addEventListener("touchend", editorTouchEnd);
-
-  // Clean up touch listeners when scene is disposed
-  scene.onDisposeObservable.add(() => {
-    window.removeEventListener("touchstart", editorTouchStart);
-    window.removeEventListener("touchmove", editorTouchMove);
-    window.removeEventListener("touchend", editorTouchEnd);
-  });
-
-  // Title
-  const titleContainer = new Rectangle("titleContainer");
-  titleContainer.width = "100%";
-  titleContainer.height = isMobile ? "40px" : "50px";
-  titleContainer.thickness = 0;
-  titleContainer.paddingLeft = isMobile ? "15px" : "25px";
-  titleContainer.paddingRight = isMobile ? "15px" : "25px";
-  optionsStack.addControl(titleContainer);
-
-  const overlayTitle = new TextBlock("overlayTitle");
-  overlayTitle.text = "EDIT APPEARANCE";
-  overlayTitle.color = COLORS.textPrimary;
-  overlayTitle.fontSize = isMobile ? 18 : headerFontSize;
-  overlayTitle.fontFamily = "'Bebas Neue', sans-serif";
-  overlayTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-  overlayTitle.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-  titleContainer.addControl(overlayTitle);
-
-  // Options
-  const bodySelector = createAppearanceOption("Body", ["Male", "Female"], 0, (idx) => {
-    editingCustomization.body = idx === 0 ? "male" : "female";
-  });
-  optionsStack.addControl(bodySelector);
-
-  const headSelector = createAppearanceOption("Head", ["1", "2", "3", "4"], 0, (idx) => {
-    editingCustomization.head = idx;
-  });
-  optionsStack.addControl(headSelector);
-
-  const handSelector = createAppearanceOption("Handedness", ["Right", "Left"], 0, (idx) => {
-    editingCustomization.handedness = idx === 0 ? "right" : "left";
-  });
-  optionsStack.addControl(handSelector);
-
-  const skinSelector = createColorOption("Skin Tone", SKIN_TONES, 4, (idx) => {
-    editingCustomization.skinTone = idx;
-  });
-  optionsStack.addControl(skinSelector);
-
-  const hairSelector = createColorOption("Hair Color", HAIR_COLORS, 0, (idx) => {
-    editingCustomization.hairColor = idx;
-  });
-  optionsStack.addControl(hairSelector);
-
-  const eyeSelector = createColorOption("Eye Color", EYE_COLORS, 2, (idx) => {
-    editingCustomization.eyeColor = idx;
-  });
-  optionsStack.addControl(eyeSelector);
-
-  // Button row
-  const editorButtonRow = new StackPanel("editorButtonRow");
-  editorButtonRow.isVertical = false;
-  editorButtonRow.height = `${buttonHeight + 20}px`;
-  editorButtonRow.paddingTop = "15px";
-  editorButtonRow.paddingLeft = isMobile ? "15px" : "25px";
-  editorButtonRow.paddingRight = isMobile ? "15px" : "25px";
-  editorButtonRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-  optionsStack.addControl(editorButtonRow);
-
-  const saveBtn = Button.CreateSimpleButton("saveAppearance", "S A V E");
-  saveBtn.width = isMobile ? "100px" : "140px";
-  saveBtn.height = `${isMobile ? 38 : buttonHeight}px`;
-  saveBtn.color = COLORS.textPrimary;
-  saveBtn.background = COLORS.success;
-  saveBtn.cornerRadius = 4;
-  saveBtn.fontSize = isMobile ? 12 : fontSize;
-  saveBtn.fontFamily = "'Bebas Neue', sans-serif";
-  saveBtn.onPointerEnterObservable.add(() => { saveBtn.background = COLORS.successHover; });
-  saveBtn.onPointerOutObservable.add(() => { saveBtn.background = COLORS.success; });
-  saveBtn.onPointerClickObservable.add(() => {
-    if (editingUnit) {
-      const { playerId, unitIndex, selectionArray } = editingUnit;
-      if (selectionArray[unitIndex]) {
-        selectionArray[unitIndex].customization = { ...editingCustomization };
-        // Mark this unit as customized so class changes won't randomize it
-        const markerKey = `${playerId}_${unitIndex}`;
-        if (customizedMarkers[markerKey]) {
-          customizedMarkers[markerKey]();
-        }
-        // Reload the loadout preview (handles model reload for gender changes)
-        previewReloadCallbacks[playerId as "player1" | "player2"].forEach(cb => cb());
-      }
-    }
-    closeAppearanceEditor();
-  });
-  editorButtonRow.addControl(saveBtn);
-
-  // Spacer
-  const editorBtnSpacer = new Rectangle();
-  editorBtnSpacer.width = "10px";
-  editorBtnSpacer.height = "1px";
-  editorBtnSpacer.thickness = 0;
-  editorButtonRow.addControl(editorBtnSpacer);
-
-  const cancelBtn = Button.CreateSimpleButton("cancelAppearance", "C A N C E L");
-  cancelBtn.width = isMobile ? "90px" : "120px";
-  cancelBtn.height = `${isMobile ? 38 : buttonHeight}px`;
-  cancelBtn.color = COLORS.textSecondary;
-  cancelBtn.background = COLORS.bgButton;
-  cancelBtn.cornerRadius = 4;
-  cancelBtn.fontSize = isMobile ? 12 : fontSize;
-  cancelBtn.fontFamily = "'Bebas Neue', sans-serif";
-  cancelBtn.onPointerEnterObservable.add(() => { cancelBtn.background = COLORS.bgButtonHover; });
-  cancelBtn.onPointerOutObservable.add(() => { cancelBtn.background = COLORS.bgButton; });
-  cancelBtn.onPointerClickObservable.add(() => {
-    closeAppearanceEditor();
-  });
-  editorButtonRow.addControl(cancelBtn);
-
-  // Preview area (right side on tablet/desktop, top on mobile)
-  // Make preview completely non-interactive so it doesn't interfere with scrolling
-  const previewArea = new Rectangle("previewArea");
-  previewArea.width = "100%";
-  previewArea.height = "100%";
-  previewArea.thickness = 0;
-  previewArea.background = COLORS.bgPreview;
-  previewArea.isHitTestVisible = false; // Don't capture any pointer events
-  if (isMobile) {
-    overlayGrid.addControl(previewArea, 0, 0);
-  } else {
-    overlayGrid.addControl(previewArea, 0, 1);
-  }
-
-  // For tablet/desktop: Inner container is a square sized by available height
-  // The square may overflow the outer container width, which clips the sides
-  // This gives the character maximum vertical space with cropped empty sides
-  const previewClipContainer = new Rectangle("previewClip");
-  previewClipContainer.thickness = 0;
-  previewClipContainer.clipChildren = true;
-  previewClipContainer.clipContent = true;
-  previewClipContainer.isHitTestVisible = false;
-
-  if (isMobile) {
-    // Mobile: show full square preview, centered within the top area
-    const mobilePreviewSize = Math.min(screenWidth * 0.9, screenHeight * 0.35 * 0.9);
-    previewClipContainer.width = `${mobilePreviewSize}px`;
-    previewClipContainer.height = `${mobilePreviewSize}px`;
-  } else {
-    // Tablet/Desktop: Square sized by height, centered horizontally
-    // The outer container (previewArea) clips the horizontal overflow
-    const editorPreviewSize = screenHeight * 0.85; // Square based on screen height
-    previewClipContainer.width = `${editorPreviewSize}px`;
-    previewClipContainer.height = `${editorPreviewSize}px`;
-  }
-  previewArea.addControl(previewClipContainer);
-
-  // Preview image fills the square container
-  editorPreviewImage.isHitTestVisible = false;
-  editorPreviewImage.width = "100%";
-  editorPreviewImage.height = "100%";
-  editorPreviewImage.stretch = Image.STRETCH_UNIFORM;
-
-  previewClipContainer.addControl(editorPreviewImage);
-
-  function openAppearanceEditor(playerId: string, unitIndex: number, selectionArray: UnitSelection[]): void {
-    editingUnit = { playerId, unitIndex, selectionArray };
-
-    const current = selectionArray[unitIndex]?.customization;
-    if (current) {
-      editingCustomization = { ...current };
-    } else {
-      editingCustomization = {
-        body: "male",
-        combatStyle: "ranged",
-        handedness: "right",
-        head: 0,
-        hairColor: 0,
-        eyeColor: 2,
-        skinTone: 4,
-      };
-    }
-
-    // Update UI to reflect current values
-    const bodyBtns = appearanceOptionButtons.get("Body");
-    if (bodyBtns) {
-      bodyBtns.forEach((b, i) => {
-        b.background = (editingCustomization.body === "male" ? 0 : 1) === i ? COLORS.selected : COLORS.bgButton;
-      });
-    }
-
-    const headBtns = appearanceOptionButtons.get("Head");
-    if (headBtns) {
-      headBtns.forEach((b, i) => {
-        b.background = editingCustomization.head === i ? COLORS.selected : COLORS.bgButton;
-      });
-    }
-
-    const handBtns = appearanceOptionButtons.get("Handedness");
-    if (handBtns) {
-      handBtns.forEach((b, i) => {
-        b.background = (editingCustomization.handedness === "right" ? 0 : 1) === i ? COLORS.selected : COLORS.bgButton;
-      });
-    }
-
-    const skinSwatches = appearanceColorSwatches.get("Skin Tone");
-    if (skinSwatches) {
-      skinSwatches.forEach((s, i) => {
-        s.thickness = editingCustomization.skinTone === i ? 3 : 1;
-        s.color = editingCustomization.skinTone === i ? COLORS.accentOrange : COLORS.borderWarm;
-      });
-    }
-
-    const hairSwatches = appearanceColorSwatches.get("Hair Color");
-    if (hairSwatches) {
-      hairSwatches.forEach((s, i) => {
-        s.thickness = editingCustomization.hairColor === i ? 3 : 1;
-        s.color = editingCustomization.hairColor === i ? COLORS.accentOrange : COLORS.borderWarm;
-      });
-    }
-
-    const eyeSwatches = appearanceColorSwatches.get("Eye Color");
-    if (eyeSwatches) {
-      eyeSwatches.forEach((s, i) => {
-        s.thickness = editingCustomization.eyeColor === i ? 3 : 1;
-        s.color = editingCustomization.eyeColor === i ? COLORS.accentOrange : COLORS.borderWarm;
-      });
-    }
-
-    overlayTitle.text = `${UNIT_DESIGNATIONS[unitIndex]} - EDIT APPEARANCE`;
-    appearanceOverlay.isVisible = true;
-
-    // Reset scroll position
-    optionsPanel.verticalBar.value = 0;
-
-    // Load preview model
-    editorLoadedModelKey = ""; // Force reload
+    editorLoadedModelKey = ""; // Force model reload
     updateEditorPreview();
+
+    optionsScroll.verticalBar.value = 0;
+    customizeOverlay.isVisible = true;
+    customizeOverlayVisible = true;
   }
 
-  function closeAppearanceEditor(): void {
-    appearanceOverlay.isVisible = false;
-    editingUnit = null;
+  function closeCustomizeEditor(save: boolean): void {
+    if (save && editingState) {
+      // Apply changes
+      const key = `${editingPlayerId}_${editingUnitIndex}`;
+      unitStates[key] = {
+        ...editingState,
+        hasBeenCustomized: true,
+      };
 
-    // Reset all edit button styles (in case hover state was stuck)
-    editButtonResetCallbacks.forEach(cb => cb());
+      // Sync selections
+      syncSelectionsFromStates();
+
+      // Update card
+      cardUpdateCallbacks[editingPlayerId].forEach(cb => cb());
+
+      // Reload preview
+      previewReloadCallbacks[editingPlayerId][editingUnitIndex]?.();
+
+      updateStartButton();
+    }
+
+    customizeOverlay.isVisible = false;
+    customizeOverlayVisible = false;
+    editingState = null;
 
     // Clean up editor preview model
     if (editorPreviewMesh) {
@@ -1263,887 +1665,94 @@ export function createLoadoutScene(
     editorLoadedModelKey = "";
   }
 
+  // Custom drag-to-scroll for editor
+  let editorDragging = false;
+  let editorLastY = 0;
+
+  const editorTouchStart = (e: TouchEvent) => {
+    if (!customizeOverlay.isVisible) return;
+
+    // Only start drag in options area
+    const touchY = e.touches[0].clientY;
+    const threshold = isMobile ? screenHeight * 0.35 : 0;
+    if (touchY < threshold) return;
+
+    editorDragging = true;
+    editorLastY = touchY;
+  };
+
+  const editorTouchMove = (e: TouchEvent) => {
+    if (!editorDragging || !customizeOverlay.isVisible) return;
+
+    const touchY = e.touches[0].clientY;
+    const deltaY = editorLastY - touchY;
+    editorLastY = touchY;
+
+    const contentHeight = optionsStack.heightInPixels;
+    const viewportHeight = optionsScroll.heightInPixels;
+    const maxScroll = contentHeight - viewportHeight;
+
+    if (maxScroll > 0) {
+      const scrollDelta = deltaY / maxScroll;
+      const newScroll = Math.max(0, Math.min(1, optionsScroll.verticalBar.value + scrollDelta));
+      optionsScroll.verticalBar.value = newScroll;
+    }
+    e.preventDefault();
+  };
+
+  const editorTouchEnd = () => {
+    editorDragging = false;
+  };
+
+  window.addEventListener("touchstart", editorTouchStart, { passive: false });
+  window.addEventListener("touchmove", editorTouchMove, { passive: false });
+  window.addEventListener("touchend", editorTouchEnd);
+
+  scene.onDisposeObservable.add(() => {
+    window.removeEventListener("touchstart", editorTouchStart);
+    window.removeEventListener("touchmove", editorTouchMove);
+    window.removeEventListener("touchend", editorTouchEnd);
+  });
+
   // ============================================
-  // UNIT ROW - Clean grid layout
-  // Mobile: [Greek] [3x3 buttons] [info icon]
-  // Tablet: [Greek] [3x3 buttons] [copy text]
-  // Desktop: [Greek] [3x3 buttons] [copy text] [preview]
+  // START BUTTON (fixed at bottom)
   // ============================================
-  function createUnitRow(
-    unitIndex: number,
-    playerId: string,
-    selectionArray: UnitSelection[],
-    parent: StackPanel
-  ): void {
-    // State - defaults based on unit index for variety
-    // Delta (0): Soldier/Tough/Ranged, Psi (1): Operator/Deadly/Melee, Omega (2): Medic/Quick/Ranged
-    const defaultClasses: UnitClass[] = ["soldier", "operator", "medic"];
-    const defaultBoosts = [0, 1, 2]; // Tough, Deadly, Quick
-    const defaultStyles: ("ranged" | "melee")[] = ["ranged", "melee", "ranged"];
-
-    let selectedClass: UnitClass = defaultClasses[unitIndex] || "soldier";
-    let selectedBoost = defaultBoosts[unitIndex] ?? 0;
-    let selectedStyle: ("ranged" | "melee") = defaultStyles[unitIndex] || "ranged";
-
-    // Card container
-    const row = new Rectangle(`${playerId}Unit${unitIndex}`);
-    row.width = "96%";
-    row.height = `${unitRowHeight}px`;
-    row.background = COLORS.bgUnitRow;
-    row.cornerRadius = 8;
-    row.thickness = 1;
-    row.color = COLORS.borderWarm;
-    row.paddingTop = "4px";
-    row.paddingBottom = "4px";
-    parent.addControl(row);
-
-    // Main grid layout
-    const mainGrid = new Grid(`${playerId}Unit${unitIndex}Grid`);
-    mainGrid.width = "100%";
-    mainGrid.height = "100%";
-
-    // Column definitions based on screen size
-    if (isMobile) {
-      // [Greek 12%] [Buttons 88%] - info icon is now in button grid
-      mainGrid.addColumnDefinition(0.12);
-      mainGrid.addColumnDefinition(0.88);
-    } else if (isTablet) {
-      // [Greek 8%] [Buttons 45%] [Copy 27%] [Preview 20%]
-      mainGrid.addColumnDefinition(0.08);
-      mainGrid.addColumnDefinition(0.45);
-      mainGrid.addColumnDefinition(0.27);
-      mainGrid.addColumnDefinition(0.20);
-    } else {
-      // Desktop: [Greek 6%] [Buttons 40%] [Copy 30%] [Preview 24%]
-      mainGrid.addColumnDefinition(0.06);
-      mainGrid.addColumnDefinition(0.40);
-      mainGrid.addColumnDefinition(0.30);
-      mainGrid.addColumnDefinition(0.24);
-    }
-    mainGrid.addRowDefinition(1);
-    row.addControl(mainGrid);
-
-    // === COLUMN 0: Greek Letter ===
-    const greekContainer = new Rectangle();
-    greekContainer.width = "100%";
-    greekContainer.height = "100%";
-    greekContainer.thickness = 0;
-    mainGrid.addControl(greekContainer, 0, 0);
-
-    const unitDesignation = new TextBlock();
-    unitDesignation.text = UNIT_DESIGNATIONS[unitIndex];
-    unitDesignation.color = COLORS.accentOrange;
-    unitDesignation.fontSize = headerFontSize;
-    unitDesignation.fontFamily = "'Bebas Neue', sans-serif";
-    unitDesignation.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-    unitDesignation.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-    greekContainer.addControl(unitDesignation);
-
-    // === COLUMN 1: 3x3 Button Grid ===
-    const buttonGrid = new Grid(`${playerId}Unit${unitIndex}Buttons`);
-    buttonGrid.width = "100%";
-    buttonGrid.height = "100%";
-    buttonGrid.addColumnDefinition(1 / 3);
-    buttonGrid.addColumnDefinition(1 / 3);
-    buttonGrid.addColumnDefinition(1 / 3);
-    buttonGrid.addRowDefinition(1 / 3);
-    buttonGrid.addRowDefinition(1 / 3);
-    buttonGrid.addRowDefinition(1 / 3);
-    mainGrid.addControl(buttonGrid, 0, 1);
-
-    const btnWidth = isMobile ? "90%" : "85%";
-    const btnHeight = `${smallButtonHeight}px`;
-
-    // Helper to create a button
-    function createBtn(name: string, label: string, row: number, col: number, isSelected: boolean): Button {
-      const btn = Button.CreateSimpleButton(name, label);
-      btn.width = btnWidth;
-      btn.height = btnHeight;
-      btn.color = COLORS.textPrimary;
-      btn.background = isSelected ? COLORS.selected : COLORS.bgButton;
-      btn.cornerRadius = 4;
-      btn.fontSize = smallFontSize;
-      buttonGrid.addControl(btn, row, col);
-      return btn;
-    }
-
-    // Row 0: Class buttons (Soldier, Operator, Medic)
-    const classButtons: Button[] = [];
-    ALL_CLASSES.forEach((cls, i) => {
-      const btn = createBtn(`${playerId}${unitIndex}class${i}`, CLASS_INFO[cls].name, 0, i, cls === selectedClass);
-      btn.onPointerClickObservable.add(() => {
-        selectedClass = cls;
-        classButtons.forEach((b, j) => {
-          b.background = j === i ? COLORS.selected : COLORS.bgButton;
-        });
-        // Randomize appearance when class changes
-        updateUnitSelection(true);
-        updateCopy();
-      });
-      classButtons.push(btn);
-    });
-
-    // Row 1: Boost buttons (Tough, Deadly, Quick)
-    const boostButtons: Button[] = [];
-    BOOST_INFO.forEach((boost, i) => {
-      const btn = createBtn(`${playerId}${unitIndex}boost${i}`, boost.name, 1, i, i === selectedBoost);
-      btn.onPointerClickObservable.add(() => {
-        selectedBoost = i;
-        boostButtons.forEach((b, j) => {
-          b.background = j === i ? COLORS.selected : COLORS.bgButton;
-        });
-        updateCopy();
-        updateUnitSelection();
-      });
-      boostButtons.push(btn);
-    });
-
-    // Row 2: Weapon buttons (Ranged, Melee) + Edit circle
-    const weaponButtons: Button[] = [];
-    (["ranged", "melee"] as const).forEach((style, i) => {
-      const btn = createBtn(`${playerId}${unitIndex}weapon${i}`, WEAPON_INFO[style].label, 2, i, style === selectedStyle);
-      btn.onPointerClickObservable.add(() => {
-        selectedStyle = style;
-        weaponButtons.forEach((b, j) => {
-          b.background = j === i ? COLORS.selected : COLORS.bgButton;
-        });
-        updateCopy();
-        updateUnitSelection();
-      });
-      weaponButtons.push(btn);
-    });
-
-    // Row 2, Col 2: Edit button (+ info circle on mobile)
-    const circleContainer = new StackPanel();
-    circleContainer.isVertical = false;
-    circleContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-    buttonGrid.addControl(circleContainer, 2, 2);
-
-    const circleSize = isMobile ? 34 : 38;
-    const circleGap = 6;
-
-    // Edit button - circle on mobile, pill on tablet/desktop
-    const editBtn = new Rectangle(`${playerId}${unitIndex}edit`);
-    if (isMobile) {
-      // Circle
-      editBtn.width = `${circleSize}px`;
-      editBtn.height = `${circleSize}px`;
-      editBtn.cornerRadius = circleSize / 2;
-    } else {
-      // Pill
-      editBtn.width = "75px";
-      editBtn.height = `${circleSize}px`;
-      editBtn.cornerRadius = circleSize / 2;
-    }
-    editBtn.background = COLORS.bgButton;
-    editBtn.thickness = 2;
-    editBtn.color = COLORS.borderWarm;
-    editBtn.paddingRight = isMobile ? `${circleGap / 2}px` : "0px";
-    circleContainer.addControl(editBtn);
-
-    if (isMobile) {
-      // Just icon on mobile
-      const editIcon = new TextBlock();
-      editIcon.text = "✎";
-      editIcon.color = COLORS.textSecondary;
-      editIcon.fontSize = 15;
-      editBtn.addControl(editIcon);
-    } else {
-      // Icon + "Edit" on tablet/desktop
-      const editContent = new StackPanel();
-      editContent.isVertical = false;
-      editContent.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-      editBtn.addControl(editContent);
-
-      const editIcon = new TextBlock();
-      editIcon.text = "✎";
-      editIcon.color = COLORS.textSecondary;
-      editIcon.fontSize = 14;
-      editIcon.width = "18px";
-      editContent.addControl(editIcon);
-
-      const editLabel = new TextBlock();
-      editLabel.text = "Edit";
-      editLabel.color = COLORS.textSecondary;
-      editLabel.fontSize = smallFontSize;
-      editLabel.width = "32px";
-      editContent.addControl(editLabel);
-    }
-
-    editBtn.onPointerEnterObservable.add(() => {
-      editBtn.background = COLORS.bgButtonHover;
-      editBtn.color = COLORS.accentOrange;
-    });
-    editBtn.onPointerOutObservable.add(() => {
-      editBtn.background = COLORS.bgButton;
-      editBtn.color = COLORS.borderWarm;
-    });
-    editBtn.onPointerClickObservable.add(() => {
-      openAppearanceEditor(playerId, unitIndex, selectionArray);
-    });
-
-    // Register callback to reset button style when editor closes
-    editButtonResetCallbacks.push(() => {
-      editBtn.background = COLORS.bgButton;
-      editBtn.color = COLORS.borderWarm;
-    });
-
-    // === COLUMN 2: Copy text (single combined description) ===
-    let copyText: TextBlock | null = null;
-
-    // Tooltip elements (used by mobile info circle)
-    let tooltipBackdrop: Rectangle | null = null;
-    let tooltipOverlay: Rectangle | null = null;
-
-    // Mobile RTT preview variables
-    let mobilePreviewMesh: AbstractMesh | null = null;
-    let mobilePreviewAnims: AnimationGroup[] = [];
-    let mobilePreviewMeshes: AbstractMesh[] = [];
-    let mobileLoadedModelKey = "";
-    let mobilePreviewImage: Image | null = null;
-    let loadMobilePreview: (() => void) | null = null;
-
-    if (isMobile) {
-      // Info circle (magnifying glass) - next to edit button
-      const infoCircle = new Rectangle(`${playerId}${unitIndex}info`);
-      infoCircle.width = `${circleSize}px`;
-      infoCircle.height = `${circleSize}px`;
-      infoCircle.cornerRadius = circleSize / 2;
-      infoCircle.background = COLORS.bgButton;
-      infoCircle.thickness = 2;
-      infoCircle.color = COLORS.borderWarm;
-      infoCircle.paddingLeft = `${circleGap / 2}px`;
-      circleContainer.addControl(infoCircle);
-
-      const infoIcon = new TextBlock();
-      infoIcon.text = "⌕";  // Monochrome magnifying glass
-      infoIcon.color = COLORS.textSecondary;
-      infoIcon.fontSize = 18;
-      infoCircle.addControl(infoIcon);
-
-      infoCircle.onPointerEnterObservable.add(() => {
-        infoCircle.background = COLORS.bgButtonHover;
-        infoCircle.color = COLORS.accentBlue;
-      });
-      infoCircle.onPointerOutObservable.add(() => {
-        infoCircle.background = COLORS.bgButton;
-        infoCircle.color = COLORS.borderWarm;
-      });
-
-      // Backdrop (click to close)
-      tooltipBackdrop = new Rectangle(`${playerId}${unitIndex}backdrop`);
-      tooltipBackdrop.width = "100%";
-      tooltipBackdrop.height = "100%";
-      tooltipBackdrop.background = "rgba(0, 0, 0, 0.6)";
-      tooltipBackdrop.thickness = 0;
-      tooltipBackdrop.zIndex = 99;
-      tooltipBackdrop.isVisible = false;
-      gui.addControl(tooltipBackdrop);
-
-      tooltipBackdrop.onPointerClickObservable.add(() => {
-        if (tooltipBackdrop) tooltipBackdrop.isVisible = false;
-        if (tooltipOverlay) tooltipOverlay.isVisible = false;
-        // Reset info circle style
-        infoCircle.background = COLORS.bgButton;
-        infoCircle.color = COLORS.borderWarm;
-      });
-
-      // Tooltip overlay for mobile - fixed height to accommodate preview
-      tooltipOverlay = new Rectangle(`${playerId}${unitIndex}tooltip`);
-      tooltipOverlay.width = "85%";
-      tooltipOverlay.height = "420px";
-      tooltipOverlay.background = COLORS.bgPanel;
-      tooltipOverlay.cornerRadius = 12;
-      tooltipOverlay.thickness = 2;
-      tooltipOverlay.color = COLORS.borderWarm;
-      tooltipOverlay.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-      tooltipOverlay.zIndex = 100;
-      tooltipOverlay.isVisible = false;
-      gui.addControl(tooltipOverlay);
-
-      // Stack for preview + text
-      const tooltipStack = new StackPanel();
-      tooltipStack.width = "100%";
-      tooltipStack.isVertical = true;
-      tooltipStack.paddingTop = "16px";
-      tooltipStack.paddingBottom = "20px";
-      tooltipOverlay.addControl(tooltipStack);
-
-      // Preview container at top
-      const mobilePreviewContainer = new Rectangle();
-      mobilePreviewContainer.width = "140px";
-      mobilePreviewContainer.height = "140px";
-      mobilePreviewContainer.thickness = 0;
-      mobilePreviewContainer.background = COLORS.bgPreview;
-      mobilePreviewContainer.cornerRadius = 8;
-      tooltipStack.addControl(mobilePreviewContainer);
-
-      // RTT setup for mobile preview
-      const mobileRttSize = 256;
-      const mobileRtt = new RenderTargetTexture(`mobileRtt_${playerId}_${unitIndex}`, mobileRttSize, scene, false);
-      mobileRtt.clearColor = hexToColor4(COLORS.bgPreview); // Dark warm background
-      scene.customRenderTargets.push(mobileRtt);
-
-      // Preview camera for mobile
-      const mobilePreviewCamera = new ArcRotateCamera(
-        `mobilePreviewCam_${playerId}_${unitIndex}`,
-        Math.PI / 2 + 0.3,
-        Math.PI / 2.5,
-        2.5,
-        new Vector3(0, 0.9, 0),
-        scene
-      );
-      mobileRtt.activeCamera = mobilePreviewCamera;
-
-      // Force square aspect ratio
-      const originalGetEngine = mobilePreviewCamera.getEngine.bind(mobilePreviewCamera);
-      mobilePreviewCamera.getEngine = () => {
-        const eng = originalGetEngine();
-        return { ...eng, getAspectRatio: () => 1 } as any;
-      };
-
-      // Unique layer mask for mobile preview (offset by 6 to avoid collision with desktop)
-      const mobileLayerMask = 0x10000000 << (playerId === "player1" ? unitIndex + 6 : unitIndex + 9);
-      mobilePreviewCamera.layerMask = mobileLayerMask;
-
-      // Canvas for RTT pixels
-      const mobileCanvas = document.createElement("canvas");
-      mobileCanvas.width = mobileRttSize;
-      mobileCanvas.height = mobileRttSize;
-      const mobileCtx = mobileCanvas.getContext("2d")!;
-
-      // Mobile loading indicator
-      const mobileLoadingText = new TextBlock(`mobileLoadingText_${playerId}_${unitIndex}`);
-      mobileLoadingText.text = "Loading...";
-      mobileLoadingText.color = "#666666";
-      mobileLoadingText.fontSize = 11;
-      mobilePreviewContainer.addControl(mobileLoadingText);
-
-      // GUI Image for preview (hidden until model loads)
-      mobilePreviewImage = new Image(`mobilePreviewImg_${playerId}_${unitIndex}`, "");
-      mobilePreviewImage.stretch = Image.STRETCH_UNIFORM;
-      mobilePreviewImage.width = "100%";
-      mobilePreviewImage.height = "100%";
-      mobilePreviewImage.alpha = 0;
-      mobilePreviewContainer.addControl(mobilePreviewImage);
-
-      // Update canvas from RTT - continuously while tooltip is visible (for looping animation)
-      let mobileFrameCount = 0;
-      let mobileModelLoaded = false;
-      mobileRtt.onAfterRenderObservable.add(() => {
-        // Only update if tooltip is visible and model is loaded
-        if (!tooltipOverlay?.isVisible || !mobileModelLoaded) return;
-
-        mobileFrameCount++;
-        // Throttle to every 3rd frame
-        if (mobileFrameCount % 3 !== 0) return;
-
-        mobileRtt.readPixels()?.then((buffer) => {
-          if (!buffer || !mobilePreviewImage) return;
-          const pixels = new Uint8Array(buffer.buffer);
-          const imageData = mobileCtx.createImageData(mobileRttSize, mobileRttSize);
-
-          for (let y = 0; y < mobileRttSize; y++) {
-            for (let x = 0; x < mobileRttSize; x++) {
-              const srcIdx = ((mobileRttSize - 1 - y) * mobileRttSize + x) * 4;
-              const dstIdx = (y * mobileRttSize + x) * 4;
-              imageData.data[dstIdx] = pixels[srcIdx];
-              imageData.data[dstIdx + 1] = pixels[srcIdx + 1];
-              imageData.data[dstIdx + 2] = pixels[srcIdx + 2];
-              imageData.data[dstIdx + 3] = pixels[srcIdx + 3];
-            }
-          }
-          mobileCtx.putImageData(imageData, 0, 0);
-          mobilePreviewImage.source = mobileCanvas.toDataURL();
-          if (mobilePreviewImage.alpha < 1) {
-            mobilePreviewImage.alpha = 1;
-            mobileLoadingText.isVisible = false;
-          }
-        });
-      });
-
-      // Update mobile preview appearance
-      const updateMobilePreviewAppearance = (): void => {
-        if (mobilePreviewMeshes.length === 0 || !mobilePreviewMesh) return;
-
-        const customization = selectionArray[unitIndex]?.customization;
-        const headIndex = customization?.head ?? 0;
-        const isMelee = selectedStyle === "melee";
-        const isRightHanded = customization?.handedness === "right";
-
-        const teamColorHex = playerId === "player1"
-          ? selections.player1TeamColor
-          : selections.player2TeamColor;
-        const teamColor = hexToColor3(teamColorHex || "#ff0000");
-
-        // Apply handedness by flipping X scale
-        const currentScale = mobilePreviewMesh.scaling;
-        mobilePreviewMesh.scaling.x = isRightHanded ? -Math.abs(currentScale.x) : Math.abs(currentScale.x);
-
-        mobilePreviewMeshes.forEach(m => {
-          if (m.material) {
-            const mat = m.material as PBRMaterial;
-            const matName = mat.name;
-
-            if (matName === "TeamMain") {
-              mat.albedoColor = teamColor;
-            } else if (matName === "MainSkin") {
-              mat.albedoColor = hexToColor3(SKIN_TONES[customization?.skinTone ?? 4] || SKIN_TONES[4]);
-            } else if (matName === "MainHair") {
-              mat.albedoColor = hexToColor3(HAIR_COLORS[customization?.hairColor ?? 0] || HAIR_COLORS[0]);
-            } else if (matName === "MainEye") {
-              mat.albedoColor = hexToColor3(EYE_COLORS[customization?.eyeColor ?? 2] || EYE_COLORS[2]);
-            }
-          }
-
-          for (let i = 0; i < 4; i++) {
-            const headName = `Head_00${i + 1}`;
-            if (m.name.includes(headName)) {
-              m.setEnabled(i === headIndex);
-            }
-          }
-
-          const meshNameLower = m.name.toLowerCase();
-          if (meshNameLower.includes("sword")) {
-            m.setEnabled(isMelee);
-          } else if (meshNameLower.includes("pistol")) {
-            m.setEnabled(!isMelee);
-          }
-        });
-
-        mobilePreviewAnims.forEach(ag => ag.stop());
-        const idleAnim = isMelee
-          ? mobilePreviewAnims.find(ag => ag.name === "Idle_Sword")
-          : mobilePreviewAnims.find(ag => ag.name === "Idle_Gun");
-        if (idleAnim) {
-          idleAnim.start(true);
-        }
-      };
-
-      // Load mobile preview model
-      loadMobilePreview = (): void => {
-        const classData = getClassData(selectedClass);
-        const body = selectionArray[unitIndex]?.customization?.body || "male";
-        const gender = body === "male" ? "m" : "f";
-        const modelKey = `${classData.modelFile}_${gender}`;
-
-        if (modelKey === mobileLoadedModelKey && mobilePreviewMesh) {
-          updateMobilePreviewAppearance();
-          return;
-        }
-
-        mobileModelLoaded = false;
-        if (mobilePreviewImage) {
-          mobilePreviewImage.alpha = 0;
-        }
-        mobileLoadingText.isVisible = true;
-        if (mobilePreviewMesh) {
-          if (mobileRtt.renderList) {
-            mobileRtt.renderList.length = 0;
-          }
-          mobilePreviewMesh.dispose();
-          mobilePreviewMesh = null;
-          mobilePreviewMeshes = [];
-        }
-        mobilePreviewAnims.forEach(a => a.stop());
-        mobilePreviewAnims = [];
-
-        const modelPath = `${import.meta.env.BASE_URL}models/${modelKey}.glb`;
-        mobileLoadedModelKey = modelKey;
-
-        SceneLoader.ImportMeshAsync("", modelPath, "", scene).then((result) => {
-          mobilePreviewMesh = result.meshes[0];
-          mobilePreviewMeshes = result.meshes;
-          mobilePreviewMesh.position = new Vector3(0, 0, 0);
-          mobilePreviewMesh.scaling = new Vector3(0.9, 0.9, 0.9);
-          mobilePreviewMesh.rotation = new Vector3(0, Math.PI * 0.15, 0);
-
-          result.meshes.forEach(m => {
-            m.layerMask = mobileLayerMask;
-            mobileRtt.renderList?.push(m);
-          });
-
-          mobilePreviewAnims = result.animationGroups;
-          mobileModelLoaded = true;
-          updateMobilePreviewAppearance();
-        }).catch((err) => {
-          console.warn("Failed to load mobile preview:", err);
-        });
-      };
-
-      // Register for team color changes
-      previewRefreshCallbacks[playerId as "player1" | "player2"].push(updateMobilePreviewAppearance);
-
-      // Register for model reloads (e.g., gender change)
-      previewReloadCallbacks[playerId as "player1" | "player2"].push(loadMobilePreview);
-
-      // Note: Initial load happens via updateCopy() at end of createUnitRow
-
-      // Spacer between preview and text
-      const tooltipSpacer = new Rectangle();
-      tooltipSpacer.width = "100%";
-      tooltipSpacer.height = "16px";
-      tooltipSpacer.thickness = 0;
-      tooltipStack.addControl(tooltipSpacer);
-
-      // Text container with padding
-      const tooltipTextContainer = new Rectangle();
-      tooltipTextContainer.width = "100%";
-      tooltipTextContainer.height = "220px";
-      tooltipTextContainer.thickness = 0;
-      tooltipTextContainer.paddingLeft = "24px";
-      tooltipTextContainer.paddingRight = "24px";
-      tooltipStack.addControl(tooltipTextContainer);
-
-      // Single text block for unit description
-      const tooltipText = new TextBlock();
-      tooltipText.text = getUnitDescription(selectedClass, selectedBoost, selectedStyle);
-      tooltipText.color = COLORS.textPrimary;
-      tooltipText.fontSize = fontSize;
-      tooltipText.textWrapping = true;
-      tooltipText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-      tooltipText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-      tooltipTextContainer.addControl(tooltipText);
-
-      // Store reference for updates
-      copyText = tooltipText;
-
-      infoCircle.onPointerClickObservable.add(() => {
-        if (copyText) copyText.text = getUnitDescription(selectedClass, selectedBoost, selectedStyle);
-        if (loadMobilePreview) loadMobilePreview();
-        if (tooltipBackdrop) tooltipBackdrop.isVisible = true;
-        if (tooltipOverlay) tooltipOverlay.isVisible = true;
-      });
-
-    } else {
-      // Tablet/Desktop: Show copy text inline
-      const copyContainer = new Rectangle();
-      copyContainer.width = "100%";
-      copyContainer.height = "100%";
-      copyContainer.thickness = 0;
-      copyContainer.paddingLeft = "8px";
-      copyContainer.paddingRight = "8px";
-      copyContainer.paddingTop = "4px";
-      copyContainer.paddingBottom = "4px";
-      mainGrid.addControl(copyContainer, 0, 2);
-
-      // Single text block for unit description
-      copyText = new TextBlock();
-      copyText.text = getUnitDescription(selectedClass, selectedBoost, selectedStyle);
-      copyText.color = COLORS.textSecondary;
-      copyText.fontSize = tinyFontSize;
-      copyText.textWrapping = true;
-      copyText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-      copyText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-      copyContainer.addControl(copyText);
-    }
-
-    // === COLUMN 3: Preview (Tablet & Desktop) - RTT based ===
-    let unitPreviewMesh: AbstractMesh | null = null;
-    let unitPreviewAnims: AnimationGroup[] = [];
-    let loadUnitPreview: (() => void) | null = null;
-
-    if (!isMobile) {
-      const previewContainer = new Rectangle();
-      previewContainer.width = "100%";
-      previewContainer.height = "100%";
-      previewContainer.thickness = 0;
-      previewContainer.background = COLORS.bgPreview;
-      previewContainer.cornerRadius = 6;
-      mainGrid.addControl(previewContainer, 0, 3);
-
-      // RTT setup for this unit's preview
-      const rttSize = 256;
-      const rtt = new RenderTargetTexture(`rtt_${playerId}_${unitIndex}`, rttSize, scene, false);
-      rtt.clearColor = hexToColor4(COLORS.bgPreview); // Dark warm background
-      scene.customRenderTargets.push(rtt);
-
-      // Preview camera for this unit
-      const previewCamera = new ArcRotateCamera(
-        `previewCam_${playerId}_${unitIndex}`,
-        Math.PI / 2 + 0.3, // Slight angle
-        Math.PI / 2.5,
-        2.5,
-        new Vector3(0, 0.9, 0),
-        scene
-      );
-      rtt.activeCamera = previewCamera;
-
-      // Force square aspect ratio for the RTT camera (ignores main canvas aspect)
-      const originalGetEngine = previewCamera.getEngine.bind(previewCamera);
-      previewCamera.getEngine = () => {
-        const eng = originalGetEngine();
-        return {
-          ...eng,
-          getAspectRatio: () => 1,
-        } as any;
-      };
-
-      // Layer mask so this model only renders to its own RTT
-      const layerMask = 0x10000000 << (playerId === "player1" ? unitIndex : unitIndex + 3);
-      previewCamera.layerMask = layerMask;
-
-      // Canvas to read RTT pixels
-      const canvas = document.createElement("canvas");
-      canvas.width = rttSize;
-      canvas.height = rttSize;
-      const ctx = canvas.getContext("2d")!;
-
-      // Loading indicator (shown until model is ready)
-      const loadingText = new TextBlock(`loadingText_${playerId}_${unitIndex}`);
-      loadingText.text = "Loading...";
-      loadingText.color = "#666666";
-      loadingText.fontSize = 11;
-      previewContainer.addControl(loadingText);
-
-      // GUI Image to display the preview (hidden until model loads)
-      const previewImage = new Image(`previewImg_${playerId}_${unitIndex}`, "");
-      previewImage.stretch = Image.STRETCH_UNIFORM;
-      previewImage.width = "100%";
-      previewImage.height = "100%";
-      previewImage.alpha = 0;
-      previewContainer.addControl(previewImage);
-
-      // Update canvas from RTT - only when dirty and model is loaded
-      let frameCount = 0;
-      let previewDirty = 30; // Start dirty to render initial model
-      let previewModelLoaded = false;
-      rtt.onAfterRenderObservable.add(() => {
-        if (previewDirty <= 0 || !previewModelLoaded) return;
-
-        frameCount++;
-        if (frameCount % 2 !== 0) return;
-
-        previewDirty--;
-
-        rtt.readPixels()?.then((buffer) => {
-          if (!buffer) return;
-          const pixels = new Uint8Array(buffer.buffer);
-          const imageData = ctx.createImageData(rttSize, rttSize);
-
-          for (let y = 0; y < rttSize; y++) {
-            for (let x = 0; x < rttSize; x++) {
-              const srcIdx = ((rttSize - 1 - y) * rttSize + x) * 4;
-              const dstIdx = (y * rttSize + x) * 4;
-              imageData.data[dstIdx] = pixels[srcIdx];
-              imageData.data[dstIdx + 1] = pixels[srcIdx + 1];
-              imageData.data[dstIdx + 2] = pixels[srcIdx + 2];
-              imageData.data[dstIdx + 3] = pixels[srcIdx + 3];
-            }
-          }
-          ctx.putImageData(imageData, 0, 0);
-          previewImage.source = canvas.toDataURL();
-          // Reveal preview and hide loading text on first frame
-          if (previewImage.alpha < 1) {
-            previewImage.alpha = 1;
-            loadingText.isVisible = false;
-          }
-        });
-      });
-
-      // Track what model is currently loaded
-      let loadedModelKey = "";
-      let unitPreviewMeshes: AbstractMesh[] = [];
-
-      // Update preview appearance without reloading model
-      const updatePreviewAppearance = (): void => {
-        if (unitPreviewMeshes.length === 0 || !unitPreviewMesh) return;
-
-        const customization = selectionArray[unitIndex]?.customization;
-        const headIndex = customization?.head ?? 0;
-        const isMelee = selectedStyle === "melee";
-        const isRightHanded = customization?.handedness === "right";
-
-        // Get team color
-        const teamColorHex = playerId === "player1"
-          ? selections.player1TeamColor
-          : selections.player2TeamColor;
-        const teamColor = hexToColor3(teamColorHex || "#ff0000");
-
-        // Apply handedness by flipping X scale
-        const currentScale = unitPreviewMesh.scaling;
-        unitPreviewMesh.scaling.x = isRightHanded ? -Math.abs(currentScale.x) : Math.abs(currentScale.x);
-
-        unitPreviewMeshes.forEach(m => {
-          // Apply colors to materials
-          if (m.material) {
-            const mat = m.material as PBRMaterial;
-            const matName = mat.name;
-
-            if (matName === "TeamMain") {
-              mat.albedoColor = teamColor;
-            } else if (matName === "MainSkin") {
-              mat.albedoColor = hexToColor3(SKIN_TONES[customization?.skinTone ?? 4] || SKIN_TONES[4]);
-            } else if (matName === "MainHair") {
-              mat.albedoColor = hexToColor3(HAIR_COLORS[customization?.hairColor ?? 0] || HAIR_COLORS[0]);
-            } else if (matName === "MainEye") {
-              mat.albedoColor = hexToColor3(EYE_COLORS[customization?.eyeColor ?? 2] || EYE_COLORS[2]);
-            }
-          }
-
-          // Hide all heads except selected one (Head_001 through Head_004)
-          for (let i = 0; i < 4; i++) {
-            const headName = `Head_00${i + 1}`;
-            if (m.name.includes(headName)) {
-              m.setEnabled(i === headIndex);
-            }
-          }
-
-          // Show sword or pistol based on combat style
-          const meshNameLower = m.name.toLowerCase();
-          if (meshNameLower.includes("sword")) {
-            m.setEnabled(isMelee);
-          } else if (meshNameLower.includes("pistol")) {
-            m.setEnabled(!isMelee);
-          }
-        });
-
-        // Play correct idle animation based on combat style
-        unitPreviewAnims.forEach(ag => ag.stop());
-        const idleAnim = isMelee
-          ? unitPreviewAnims.find(ag => ag.name === "Idle_Sword")
-          : unitPreviewAnims.find(ag => ag.name === "Idle_Gun");
-        if (idleAnim) {
-          idleAnim.start(true);
-        }
-
-        // Mark preview as needing update
-        previewDirty = 30;
-      };
-
-      // Load preview model (only when class or body changes)
-      loadUnitPreview = (): void => {
-        const classData = getClassData(selectedClass);
-        const body = selectionArray[unitIndex]?.customization?.body || "male";
-        const gender = body === "male" ? "m" : "f";
-        const modelKey = `${classData.modelFile}_${gender}`;
-
-        // If same model is already loaded, just update appearance
-        if (modelKey === loadedModelKey && unitPreviewMesh) {
-          updatePreviewAppearance();
-          return;
-        }
-
-        // Clean up existing model
-        previewModelLoaded = false;
-        previewImage.alpha = 0;
-        loadingText.isVisible = true;
-        if (unitPreviewMesh) {
-          if (rtt.renderList) {
-            rtt.renderList.length = 0;
-          }
-          unitPreviewMesh.dispose();
-          unitPreviewMesh = null;
-          unitPreviewMeshes = [];
-        }
-        unitPreviewAnims.forEach(a => a.stop());
-        unitPreviewAnims = [];
-
-        const modelPath = `${import.meta.env.BASE_URL}models/${modelKey}.glb`;
-        loadedModelKey = modelKey;
-
-        SceneLoader.ImportMeshAsync("", modelPath, "", scene).then((result) => {
-          unitPreviewMesh = result.meshes[0];
-          unitPreviewMeshes = result.meshes;
-          unitPreviewMesh.position = new Vector3(0, 0, 0);
-          unitPreviewMesh.scaling = new Vector3(0.9, 0.9, 0.9);
-          unitPreviewMesh.rotation = new Vector3(0, Math.PI * 0.15, 0);
-
-          // Set layer mask and add to RTT render list
-          result.meshes.forEach(m => {
-            m.layerMask = layerMask;
-            rtt.renderList?.push(m);
-          });
-
-          // Store animations and update appearance
-          unitPreviewAnims = result.animationGroups;
-          previewModelLoaded = true;
-          updatePreviewAppearance();
-        }).catch((err) => {
-          console.warn("Failed to load unit preview:", err);
-        });
-      };
-
-      // Register callback for team color changes
-      previewRefreshCallbacks[playerId as "player1" | "player2"].push(updatePreviewAppearance);
-
-      // Register for model reloads (e.g., gender change)
-      previewReloadCallbacks[playerId as "player1" | "player2"].push(loadUnitPreview);
-
-      // Note: Initial load happens via updateCopy() at end of createUnitRow
-    }
-
-    // Update copy text and preview
-    function updateCopy(): void {
-      if (copyText) {
-        copyText.text = getUnitDescription(selectedClass, selectedBoost, selectedStyle);
-      }
-      // Update 3D preview on desktop or mobile
-      if (loadUnitPreview) {
-        loadUnitPreview();
-      }
-      if (loadMobilePreview) {
-        loadMobilePreview();
-      }
-    }
-
-    // Helper to generate random customization
-    // Track whether this unit has been manually customized via the editor
-    let hasBeenCustomized = false;
-
-    function randomizeCustomization(): UnitCustomization {
-      return {
-        body: Math.random() > 0.5 ? "male" : "female",
-        combatStyle: selectedStyle,
-        handedness: Math.random() > 0.5 ? "right" : "left",
-        head: Math.floor(Math.random() * 4),
-        hairColor: Math.floor(Math.random() * HAIR_COLORS.length),
-        eyeColor: Math.floor(Math.random() * EYE_COLORS.length),
-        skinTone: Math.floor(Math.random() * SKIN_TONES.length),
-      };
-    }
-
-    // Mark this unit as customized (called when appearance editor saves)
-    function markAsCustomized(): void {
-      hasBeenCustomized = true;
-    }
-
-    function updateUnitSelection(isClassChange = false): void {
-      while (selectionArray.length < unitIndex + 1) {
-        selectionArray.push({
-          unitClass: "soldier",
-          customization: randomizeCustomization(),
-        });
-      }
-
-      const existingCustomization = selectionArray[unitIndex]?.customization;
-
-      // Only randomize if:
-      // 1. No existing customization, OR
-      // 2. Class changed AND unit hasn't been manually customized
-      const shouldRandomize = !existingCustomization || (isClassChange && !hasBeenCustomized);
-
-      selectionArray[unitIndex] = {
-        unitClass: selectedClass,
-        customization: shouldRandomize
-          ? randomizeCustomization()
-          : {
-              ...existingCustomization,
-              combatStyle: selectedStyle,
-            },
-        boost: selectedBoost,
-      };
-
-      updateStartButton();
-    }
-
-    // Store reference for marking as customized from outside
-    customizedMarkers[`${playerId}_${unitIndex}`] = markAsCustomized;
-
-    // Initialize selection with randomized customization, then update preview
-    updateUnitSelection(true);
-    updateCopy();
+  const startBtnContainer = new Rectangle("startBtnContainer");
+  startBtnContainer.width = "100%";
+  startBtnContainer.height = "80px";
+  startBtnContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+  startBtnContainer.background = COLORS.bgDeep + "ee";
+  startBtnContainer.thickness = 0;
+  gui.addControl(startBtnContainer);
+
+  const startBtn = Button.CreateSimpleButton("startBattle", "S T A R T   B A T T L E");
+  startBtn.width = isMobile ? "80%" : isTablet ? "50%" : "300px";
+  startBtn.height = `${buttonHeight + 10}px`;
+  startBtn.color = COLORS.textPrimary;
+  startBtn.background = COLORS.success;
+  startBtn.cornerRadius = 6;
+  startBtn.fontSize = fontSize + 2;
+  startBtn.fontFamily = "'Bebas Neue', sans-serif";
+  startBtn.onPointerClickObservable.add(() => {
+    syncSelectionsFromStates();
+    onStartBattle(selections);
+  });
+  startBtn.onPointerEnterObservable.add(() => {
+    startBtn.background = COLORS.successHover;
+  });
+  startBtn.onPointerOutObservable.add(() => {
+    startBtn.background = COLORS.success;
+  });
+  startBtnContainer.addControl(startBtn);
+
+  function updateStartButton(): void {
+    // Always ready since we have default units
+    startBtn.isEnabled = true;
+    startBtn.alpha = 1;
+    startBtn.background = COLORS.success;
   }
+
+  updateStartButton();
 
   return scene;
 }

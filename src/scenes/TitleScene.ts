@@ -5,7 +5,7 @@ import {
   Vector3,
   Color4,
 } from "@babylonjs/core";
-import { AdvancedDynamicTexture, TextBlock, StackPanel, Rectangle, Control, Button } from "@babylonjs/gui";
+import { AdvancedDynamicTexture, TextBlock, StackPanel, Rectangle, Control, Button, ScrollViewer } from "@babylonjs/gui";
 import type { SceneName, GameMode } from "../types";
 import { setGameMode } from "../main";
 import {
@@ -14,8 +14,16 @@ import {
   TITLE_TEXT_COLORS,
   TITLE_FADE_IN_DURATION,
   TITLE_FADE_IN_DELAY,
+  ACTIONS_PER_TURN,
+  ACCUMULATOR_THRESHOLD,
+  SPEED_BONUS_PER_UNUSED_ACTION,
+  BASE_UNIT_SPEED,
+  MELEE_DAMAGE_MULTIPLIER,
+  BOOST_MULTIPLIER,
+  GRID_SIZE,
 } from "../config";
 import { MUSIC, AUDIO_VOLUMES, LOOP_BUFFER_TIME, DEBUG_SKIP_OFFSET } from "../config";
+import { CLASS_DATA } from "../types";
 import { createMusicPlayer } from "../utils";
 
 // Ember particle for floating fire effect
@@ -247,7 +255,7 @@ export function createTitleScene(
 
   // Version label
   const versionLabel = new TextBlock();
-  versionLabel.text = "[ DEMO - Early - NOT BALANCED ] v0.1";
+  versionLabel.text = "[ DEMO - Early - NOT BALANCED ] v0.2";
   versionLabel.color = "rgba(180, 180, 180, 0)";
   versionLabel.fontFamily = "'Exo 2', sans-serif";
   versionLabel.fontSize = 11;
@@ -341,6 +349,336 @@ export function createTitleScene(
   const pveButton = createModeButton("L O C A L   P V E", "local-pve");
   panel.addControl(pveButton);
   modeButtons.push(pveButton);
+
+  // Small spacer before how-to button
+  const buttonSpacer2 = new TextBlock();
+  buttonSpacer2.height = buttonSpacerHeight;
+  buttonSpacer2.text = "";
+  panel.addControl(buttonSpacer2);
+
+  // Quick How To button (different style - doesn't navigate)
+  const howToButton = Button.CreateSimpleButton("howTo", "Q U I C K   H O W   T O");
+  howToButton.width = buttonWidthPercent;
+  howToButton.height = buttonHeight;
+  howToButton.background = "rgba(30, 30, 40, 0.6)";
+  howToButton.cornerRadius = Math.round(4 * buttonScale);
+  howToButton.thickness = 1;
+  howToButton.color = "#aaaacc";
+  howToButton.hoverCursor = "pointer";
+  howToButton.alpha = 0;
+
+  if (howToButton.textBlock) {
+    howToButton.textBlock.color = "#aaaacc";
+    howToButton.textBlock.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
+    howToButton.textBlock.fontSize = buttonFontSize;
+    howToButton.textBlock.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  }
+
+  howToButton.onPointerEnterObservable.add(() => {
+    howToButton.background = "rgba(60, 60, 80, 0.8)";
+    if (howToButton.textBlock) {
+      howToButton.textBlock.color = "#ffffff";
+    }
+    howToButton.shadowColor = "rgba(150, 150, 255, 0.4)";
+    howToButton.shadowBlur = 15;
+  });
+  howToButton.onPointerOutObservable.add(() => {
+    howToButton.background = "rgba(30, 30, 40, 0.6)";
+    if (howToButton.textBlock) {
+      howToButton.textBlock.color = "#aaaacc";
+    }
+    howToButton.shadowColor = "transparent";
+    howToButton.shadowBlur = 0;
+  });
+
+  howToButton.onPointerClickObservable.add(() => {
+    showHowToOverlay();
+  });
+
+  panel.addControl(howToButton);
+  modeButtons.push(howToButton);
+
+  // === HOW TO OVERLAY ===
+  let howToOverlay: Rectangle | null = null;
+  let isShowingNerdSection = false;
+
+  function showHowToOverlay() {
+    if (howToOverlay) return;
+
+    // Create dark overlay background
+    howToOverlay = new Rectangle("howToOverlay");
+    howToOverlay.width = "100%";
+    howToOverlay.height = "100%";
+    howToOverlay.background = "rgba(0, 0, 0, 0.95)";
+    howToOverlay.thickness = 0;
+    howToOverlay.zIndex = 100;
+    gui.addControl(howToOverlay);
+
+    // Main container with fixed header/footer and scrollable middle
+    const mainContainer = new Rectangle("mainContainer");
+    mainContainer.width = isDesktop ? "600px" : isTablet ? "85%" : "95%";
+    mainContainer.height = isLandscapePhone ? "95%" : "85%";
+    mainContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+    mainContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    mainContainer.thickness = 0;
+    mainContainer.background = "transparent";
+    howToOverlay.addControl(mainContainer);
+
+    // Header (fixed)
+    const headerPanel = new StackPanel("headerPanel");
+    headerPanel.width = "100%";
+    headerPanel.height = "70px";
+    headerPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    mainContainer.addControl(headerPanel);
+
+    // Title
+    const title = new TextBlock("howToTitle");
+    title.text = "Q U I C K   H O W   T O";
+    title.color = "#ff9966";
+    title.fontSize = Math.round(28 * buttonScale);
+    title.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
+    title.height = "45px";
+    title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    headerPanel.addControl(title);
+
+    // Divider
+    const dividerTop = new Rectangle("dividerTop");
+    dividerTop.width = "80%";
+    dividerTop.height = "2px";
+    dividerTop.background = "rgba(255, 150, 80, 0.4)";
+    dividerTop.thickness = 0;
+    headerPanel.addControl(dividerTop);
+
+    // Scrollable content area (use percentage - header is ~15%, footer is ~20%, scroll gets the rest)
+    const scrollViewer = new ScrollViewer("howToScroll");
+    scrollViewer.width = "100%";
+    scrollViewer.height = isLandscapePhone ? "60%" : "65%";
+    scrollViewer.top = "70px";
+    scrollViewer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    scrollViewer.thickness = 0;
+    scrollViewer.barSize = 8;
+    scrollViewer.barColor = "rgba(255, 150, 80, 0.5)";
+    scrollViewer.barBackground = "rgba(0, 0, 0, 0.3)";
+    scrollViewer.wheelPrecision = 50;
+    mainContainer.addControl(scrollViewer);
+
+    // Content stack inside scroll viewer
+    const contentStack = new StackPanel("contentStack");
+    contentStack.width = "100%";
+    contentStack.isVertical = true;
+    contentStack.paddingTop = "10px";
+    contentStack.paddingBottom = "20px";
+    scrollViewer.addControl(contentStack);
+
+    // Instructions content
+    const instructionsText = new TextBlock("instructions");
+    instructionsText.text = getInstructionsText();
+    instructionsText.color = "#cccccc";
+    instructionsText.fontSize = isLandscapePhone ? 11 : 13;
+    instructionsText.fontFamily = "'Exo 2', sans-serif";
+    instructionsText.textWrapping = true;
+    instructionsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    instructionsText.resizeToFit = true;
+    instructionsText.paddingLeft = "15px";
+    instructionsText.paddingRight = "15px";
+    contentStack.addControl(instructionsText);
+
+    // Footer (fixed at bottom)
+    const footerPanel = new StackPanel("footerPanel");
+    footerPanel.width = "100%";
+    footerPanel.height = isLandscapePhone ? "70px" : "90px";
+    footerPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    footerPanel.paddingTop = "10px";
+    mainContainer.addControl(footerPanel);
+
+    // For Nerds button
+    const nerdButton = Button.CreateSimpleButton("forNerds", "F O R   N E R D S");
+    nerdButton.width = "180px";
+    nerdButton.height = "36px";
+    nerdButton.background = "rgba(40, 50, 60, 0.8)";
+    nerdButton.cornerRadius = 4;
+    nerdButton.thickness = 1;
+    nerdButton.color = "#66aaff";
+    nerdButton.hoverCursor = "pointer";
+
+    if (nerdButton.textBlock) {
+      nerdButton.textBlock.color = "#66aaff";
+      nerdButton.textBlock.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
+      nerdButton.textBlock.fontSize = 16;
+    }
+
+    nerdButton.onPointerEnterObservable.add(() => {
+      nerdButton.background = "rgba(60, 80, 100, 0.9)";
+      if (nerdButton.textBlock) nerdButton.textBlock.color = "#ffffff";
+    });
+    nerdButton.onPointerOutObservable.add(() => {
+      nerdButton.background = "rgba(40, 50, 60, 0.8)";
+      if (nerdButton.textBlock) nerdButton.textBlock.color = "#66aaff";
+    });
+
+    nerdButton.onPointerClickObservable.add(() => {
+      isShowingNerdSection = !isShowingNerdSection;
+      if (isShowingNerdSection) {
+        instructionsText.text = getNerdText();
+        if (nerdButton.textBlock) nerdButton.textBlock.text = "B A C K";
+        title.text = "F O R   N E R D S";
+      } else {
+        instructionsText.text = getInstructionsText();
+        if (nerdButton.textBlock) nerdButton.textBlock.text = "F O R   N E R D S";
+        title.text = "Q U I C K   H O W   T O";
+      }
+      // Reset scroll position when switching
+      scrollViewer.verticalBar.value = 0;
+    });
+
+    footerPanel.addControl(nerdButton);
+
+    // Spacer
+    const spacer3 = new TextBlock();
+    spacer3.height = "8px";
+    spacer3.text = "";
+    footerPanel.addControl(spacer3);
+
+    // Close button
+    const closeButton = Button.CreateSimpleButton("closeHowTo", "C L O S E");
+    closeButton.width = "180px";
+    closeButton.height = "36px";
+    closeButton.background = "rgba(80, 40, 30, 0.8)";
+    closeButton.cornerRadius = 4;
+    closeButton.thickness = 1;
+    closeButton.color = "#ff9966";
+    closeButton.hoverCursor = "pointer";
+
+    if (closeButton.textBlock) {
+      closeButton.textBlock.color = "#ff9966";
+      closeButton.textBlock.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
+      closeButton.textBlock.fontSize = 16;
+    }
+
+    closeButton.onPointerEnterObservable.add(() => {
+      closeButton.background = "rgba(120, 60, 40, 0.9)";
+      if (closeButton.textBlock) closeButton.textBlock.color = "#ffffff";
+    });
+    closeButton.onPointerOutObservable.add(() => {
+      closeButton.background = "rgba(80, 40, 30, 0.8)";
+      if (closeButton.textBlock) closeButton.textBlock.color = "#ff9966";
+    });
+
+    closeButton.onPointerClickObservable.add(() => {
+      hideHowToOverlay();
+    });
+
+    footerPanel.addControl(closeButton);
+  }
+
+  function hideHowToOverlay() {
+    if (howToOverlay) {
+      gui.removeControl(howToOverlay);
+      howToOverlay.dispose();
+      howToOverlay = null;
+      isShowingNerdSection = false;
+    }
+  }
+
+  function getInstructionsText(): string {
+    return `GOAL: Eliminate all enemy units.
+
+YOUR TURN: Each unit gets 2 actions. Mix and match:
+  - Move (up to 3 tiles)
+  - Attack (melee = adjacent, ranged = line of sight)
+  - Use ability (class-specific)
+
+WEAPONS:
+  - Melee: High damage, must be adjacent to target
+  - Ranged: Lower damage, can't hit adjacent tiles
+
+CLASSES:
+  - Soldier: Use COVER to watch tiles and auto-attack enemies
+  - Operator: Use CONCEAL to block the next hit (then it breaks)
+  - Medic: Use HEAL on yourself or adjacent allies
+
+BOOSTS (pick one per unit):
+  - Tough: +25% HP
+  - Deadly: +25% Damage
+  - Quick: +25% Speed (act sooner)
+
+TIPS:
+  - Ending turn early with unused actions gives a speed bonus
+  - Ranged units should stay back; melee units close the gap
+  - Medics heal better when safe behind allies
+  - Cover triggers when enemies act in watched tiles`;
+  }
+
+  function getNerdText(): string {
+    // All values pulled dynamically from config
+    const soldier = CLASS_DATA.soldier;
+    const operator = CLASS_DATA.operator;
+    const medic = CLASS_DATA.medic;
+    const boostPct = Math.round(BOOST_MULTIPLIER * 100);
+    const meleeMultiplier = MELEE_DAMAGE_MULTIPLIER;
+
+    return `GRID: ${GRID_SIZE}x${GRID_SIZE} tiles
+
+UNIT BASE STATS:
+  Soldier:  HP ${soldier.hp} | ATK ${soldier.attack} | Move ${soldier.moveRange}
+  Operator: HP ${operator.hp} | ATK ${operator.attack} | Move ${operator.moveRange}
+  Medic:    HP ${medic.hp} | ATK ${medic.attack} | Move ${medic.moveRange}
+
+DAMAGE FORMULA:
+  Ranged: ATK x 1 = ${soldier.attack} damage
+  Melee:  ATK x ${meleeMultiplier} = ${soldier.attack * meleeMultiplier} damage
+
+BOOSTS (+${boostPct}%):
+  Tough:  HP ${soldier.hp} -> ${Math.round(soldier.hp * (1 + BOOST_MULTIPLIER))}
+  Deadly: ATK ${soldier.attack} -> ${Math.round(soldier.attack * (1 + BOOST_MULTIPLIER))} (melee dmg: ${Math.round(soldier.attack * (1 + BOOST_MULTIPLIER) * meleeMultiplier)})
+  Quick:  Speed ${BASE_UNIT_SPEED} -> ${(BASE_UNIT_SPEED * (1 + BOOST_MULTIPLIER)).toFixed(2)}
+
+TURN ORDER (Accumulator System):
+  - Each unit has an accumulator starting at 0
+  - Each tick: accumulator += speed
+  - When accumulator >= ${ACCUMULATOR_THRESHOLD}, unit acts
+  - After acting: accumulator resets to 0
+  - Higher speed = more frequent turns
+
+SPEED BONUS (for ending turn early):
+  +${SPEED_BONUS_PER_UNUSED_ACTION} speed per unused action
+  Max bonus: +${SPEED_BONUS_PER_UNUSED_ACTION * ACTIONS_PER_TURN} (skip entire turn)
+
+ACTIONS PER TURN: ${ACTIONS_PER_TURN}
+  - Move, Attack, or Ability each cost 1 action
+  - Same action can be repeated (move+move, attack+attack)
+
+COVER (Soldier):
+  - Activation: Costs 1 action
+  - Watched tiles:
+    * Melee: All 8 adjacent (diagonals need LOS)
+    * Ranged: All tiles in LOS (not adjacent)
+  - Triggers: When enemy completes ANY action in a watched tile
+  - Effect: Auto-attack the enemy, then Cover ends
+  - Breaks when:
+    * Reaction fires (attacks enemy)
+    * Covering unit takes damage
+    * Covering unit's next turn starts
+  - Note: Concealed enemies don't trigger Cover
+
+CONCEAL (Operator):
+  - Activation: Costs 1 action (one-way toggle)
+  - Effect: Next incoming attack deals 0 damage
+  - Breaks when: Unit is attacked (damage negated)
+  - Cannot be manually deactivated
+
+HEAL (Medic):
+  - Heals ${medic.healAmount} HP per use
+  - Valid targets: Self or adjacent ally
+  - Diagonal targets require line of sight
+  - Cannot overheal (capped at max HP)
+
+LINE OF SIGHT:
+  - Blocked by: Terrain blocks, other units
+  - Units block the interior of their tile, not corners
+  - Diagonal attacks/heals require clear LOS
+  - Ranged attacks cannot target adjacent tiles`;
+  }
 
   // === CREATE EMBERS (after panel so they render on top) ===
   const numEmbers = 30;
