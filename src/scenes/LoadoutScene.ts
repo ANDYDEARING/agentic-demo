@@ -274,6 +274,13 @@ export function createLoadoutScene(
     player1: [],
     player2: [],
   };
+  // Animation sync callbacks - reset all previews to idle and sync rotation
+  const previewAnimSyncCallbacks: (() => void)[] = [];
+  // Desktop header color swatch refresh callbacks (for cross-team updates)
+  const desktopColorRefresh: { player1: (() => void) | null; player2: (() => void) | null } = {
+    player1: null,
+    player2: null,
+  };
 
   // Unit state per slot (indexed by playerId_unitIndex)
   interface UnitState {
@@ -555,9 +562,9 @@ export function createLoadoutScene(
         const swatch = swatches[i];
         const isSelected = getThisColor() === teamColor.hex;
         const isDisabled = getOtherColor() === teamColor.hex;
+        swatch.isVisible = !isDisabled;  // Hide instead of dimming
         swatch.thickness = isSelected ? 3 : 1;
         swatch.color = isSelected ? "white" : COLORS.borderWarm;
-        swatch.alpha = isDisabled ? 0.3 : 1;
       });
     };
 
@@ -700,11 +707,11 @@ export function createLoadoutScene(
     const headerGrid = new Grid(`${playerId}HeaderGrid`);
     headerGrid.width = "100%";
     headerGrid.height = "100%";
-    // P2 needs extra column for AI toggle
+    // P2 needs extra column for AI toggle - use fixed widths for tighter layout
     if (playerId === "player2") {
-      headerGrid.addColumnDefinition(0.25);
-      headerGrid.addColumnDefinition(0.25); // AI toggle
-      headerGrid.addColumnDefinition(0.5);
+      headerGrid.addColumnDefinition(110, true);  // "PLAYER 2" fixed width
+      headerGrid.addColumnDefinition(190, true);  // AI toggle fixed width
+      headerGrid.addColumnDefinition(1, false);   // Colors take remaining space
     } else {
       headerGrid.addColumnDefinition(0.3);
       headerGrid.addColumnDefinition(0.7);
@@ -784,9 +791,9 @@ export function createLoadoutScene(
 
       const isSelected = getThisColor() === tc.hex;
       const isDisabled = getOtherColor() === tc.hex;
+      swatch.isVisible = !isDisabled;  // Hide instead of dimming
       swatch.thickness = isSelected ? 3 : 1;
       swatch.color = isSelected ? "white" : COLORS.borderWarm;
-      swatch.alpha = isDisabled ? 0.3 : 1;
 
       swatch.onPointerClickObservable.add(() => {
         if (getOtherColor() === tc.hex) return;
@@ -799,6 +806,9 @@ export function createLoadoutScene(
         }
         nameText.color = tc.hex;
         refreshSwatches();
+        // Refresh the other team's swatches so they update visibility
+        const otherTeam = playerId === "player1" ? "player2" : "player1";
+        desktopColorRefresh[otherTeam]?.();
         previewRefreshCallbacks[playerId].forEach(cb => cb());
       });
 
@@ -811,11 +821,14 @@ export function createLoadoutScene(
         const s = swatches[i];
         const isSelected = getThisColor() === tc.hex;
         const isDisabled = getOtherColor() === tc.hex;
+        s.isVisible = !isDisabled;  // Hide instead of dimming
         s.thickness = isSelected ? 3 : 1;
         s.color = isSelected ? "white" : COLORS.borderWarm;
-        s.alpha = isDisabled ? 0.3 : 1;
       });
     };
+
+    // Store refresh callback for cross-team updates
+    desktopColorRefresh[playerId] = refreshSwatches;
 
     return header;
   }
@@ -973,8 +986,8 @@ export function createLoadoutScene(
       `cam_${key}`,
       -Math.PI / 2 + 0.2,  // Rotated 180 degrees to face user
       Math.PI / 2.3,
-      2.8,
-      new Vector3(0, 0.95, 0),
+      2.0,  // Zoomed in closer
+      new Vector3(0, 1.0, 0),  // Slightly higher target
       scene
     );
     rtt.activeCamera = previewCamera;
@@ -994,18 +1007,36 @@ export function createLoadoutScene(
     canvas.height = rttSize;
     const ctx = canvas.getContext("2d")!;
 
+    // Inner container: takes full height, width matches height (square)
+    // This ensures the square preview image fills the container without cutoff
+    const innerContainer = new Rectangle(`innerPreview_${key}`);
+    innerContainer.width = "100%";  // Start with 100%, will be adjusted to square
+    innerContainer.height = "100%";
+    innerContainer.thickness = 0;
+    innerContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    container.addControl(innerContainer);
+
+    // Set width to match height after layout (make it square)
+    const updateInnerSize = () => {
+      const h = container.heightInPixels;
+      if (h > 0) {
+        innerContainer.width = `${h}px`;
+      }
+    };
+    container.onAfterDrawObservable.add(updateInnerSize);
+
     const loadingText = new TextBlock();
     loadingText.text = "Loading...";
     loadingText.color = "#666666";
     loadingText.fontSize = 11;
-    container.addControl(loadingText);
+    innerContainer.addControl(loadingText);
 
     const previewImage = new Image(`img_${key}`, "");
     previewImage.stretch = Image.STRETCH_UNIFORM;
     previewImage.width = "100%";
     previewImage.height = "100%";
     previewImage.alpha = 0;
-    container.addControl(previewImage);
+    innerContainer.addControl(previewImage);
 
     let frameCount = 0;
     let previewModelLoaded = false;
@@ -1013,8 +1044,7 @@ export function createLoadoutScene(
     // Rotation and animation cycling state
     const rotationSpeed = 0.008; // Radians per frame (slow rotation)
     let totalRotation = 0;
-    let currentAnimPhase = 0; // 0=idle, 1=attack, 2=run
-    let isPlayingOneShot = false; // Track if attack animation is playing
+    let currentAnimPhase = 0; // 0=idle, 1=attack, 2=run, 3=ability
 
     rtt.onAfterRenderObservable.add(() => {
       if (!previewModelLoaded) return;
@@ -1028,44 +1058,34 @@ export function createLoadoutScene(
       // After one full rotation, cycle to next animation
       if (totalRotation >= Math.PI * 2) {
         totalRotation = 0;
+        currentAnimPhase = (currentAnimPhase + 1) % 4;
 
-        if (!isPlayingOneShot) {
-          currentAnimPhase = (currentAnimPhase + 1) % 3;
+        const state = unitStates[key];
+        const isMelee = state.selectedStyle === "melee";
 
-          const state = unitStates[key];
-          const isMelee = state.selectedStyle === "melee";
+        // Stop current animations
+        unitPreviewAnims.forEach(ag => ag.stop());
 
-          // Stop current animations
-          unitPreviewAnims.forEach(ag => ag.stop());
-
-          if (currentAnimPhase === 0) {
-            // Idle
-            const idleAnim = isMelee
-              ? unitPreviewAnims.find(ag => ag.name === "Idle_Sword")
-              : unitPreviewAnims.find(ag => ag.name === "Idle_Gun");
-            if (idleAnim) idleAnim.start(true);
-          } else if (currentAnimPhase === 1) {
-            // Attack (one-shot, then back to idle)
-            const attackAnim = isMelee
-              ? unitPreviewAnims.find(ag => ag.name === "Sword_Slash")
-              : unitPreviewAnims.find(ag => ag.name === "Gun_Shoot");
-            if (attackAnim) {
-              isPlayingOneShot = true;
-              attackAnim.start(false);
-              attackAnim.onAnimationEndObservable.addOnce(() => {
-                isPlayingOneShot = false;
-                // Return to idle after attack
-                const idleAnim = isMelee
-                  ? unitPreviewAnims.find(ag => ag.name === "Idle_Sword")
-                  : unitPreviewAnims.find(ag => ag.name === "Idle_Gun");
-                if (idleAnim) idleAnim.start(true);
-              });
-            }
-          } else if (currentAnimPhase === 2) {
-            // Run
-            const runAnim = unitPreviewAnims.find(ag => ag.name === "Run");
-            if (runAnim) runAnim.start(true);
-          }
+        if (currentAnimPhase === 0) {
+          // Idle
+          const idleAnim = isMelee
+            ? unitPreviewAnims.find(ag => ag.name === "Idle_Sword")
+            : unitPreviewAnims.find(ag => ag.name === "Idle_Gun");
+          if (idleAnim) idleAnim.start(true);
+        } else if (currentAnimPhase === 1) {
+          // Attack (loop for full rotation)
+          const attackAnim = isMelee
+            ? unitPreviewAnims.find(ag => ag.name === "Sword_Slash")
+            : unitPreviewAnims.find(ag => ag.name === "Gun_Shoot");
+          if (attackAnim) attackAnim.start(true);
+        } else if (currentAnimPhase === 2) {
+          // Run (loop for full rotation)
+          const runAnim = unitPreviewAnims.find(ag => ag.name === "Run");
+          if (runAnim) runAnim.start(true);
+        } else if (currentAnimPhase === 3) {
+          // Ability (Interact animation, loop for full rotation)
+          const interactAnim = unitPreviewAnims.find(ag => ag.name === "Interact");
+          if (interactAnim) interactAnim.start(true);
         }
       }
 
@@ -1158,7 +1178,6 @@ export function createLoadoutScene(
       // Reset animation cycle when appearance changes
       currentAnimPhase = 0;
       totalRotation = 0;
-      isPlayingOneShot = false;
     };
 
     const loadUnitPreview = (): void => {
@@ -1218,6 +1237,25 @@ export function createLoadoutScene(
     // Register callbacks
     previewRefreshCallbacks[playerId as "player1" | "player2"].push(updatePreviewAppearance);
     previewReloadCallbacks[playerId as "player1" | "player2"].push(loadUnitPreview);
+
+    // Animation sync callback - resets to idle and syncs rotation
+    const syncAnimation = (): void => {
+      currentAnimPhase = 0;
+      totalRotation = 0;
+      previewCamera.alpha = -Math.PI / 2 + 0.2; // Reset rotation
+
+      // Start idle animation
+      if (unitPreviewAnims.length > 0) {
+        const state = unitStates[key];
+        const isMelee = state.selectedStyle === "melee";
+        unitPreviewAnims.forEach(ag => ag.stop());
+        const idleAnim = isMelee
+          ? unitPreviewAnims.find(ag => ag.name === "Idle_Sword")
+          : unitPreviewAnims.find(ag => ag.name === "Idle_Gun");
+        if (idleAnim) idleAnim.start(true);
+      }
+    };
+    previewAnimSyncCallbacks.push(syncAnimation);
 
     // Initial load
     loadUnitPreview();
@@ -1889,6 +1927,9 @@ export function createLoadoutScene(
 
       // Reload preview
       previewReloadCallbacks[editingPlayerId][editingUnitIndex]?.();
+
+      // Sync all preview animations to idle
+      previewAnimSyncCallbacks.forEach(cb => cb());
 
       updateStartButton();
     }
