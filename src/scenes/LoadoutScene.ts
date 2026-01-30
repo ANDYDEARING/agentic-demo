@@ -424,7 +424,8 @@ export function createLoadoutScene(
   const p1Cards: Rectangle[] = [];
   const p2Cards: Rectangle[] = [];
   let mobileColorRefresh: (() => void) | null = null;
-  let mobileAiToggleBtn: Button | null = null;
+  let mobileAiToggleRow: Rectangle | null = null;
+  let mobileAiToggleText: TextBlock | null = null;
 
   if (isMobile) {
     const tabsContainer = new StackPanel("tabsContainer");
@@ -462,30 +463,6 @@ export function createLoadoutScene(
     p2Tab.onPointerClickObservable.add(() => switchTeam("player2"));
     tabsContainer.addControl(p2Tab);
 
-    // AI toggle for P2 (small circle button)
-    const aiSpacer = new Rectangle();
-    aiSpacer.width = "8px";
-    aiSpacer.height = "1px";
-    aiSpacer.thickness = 0;
-    tabsContainer.addControl(aiSpacer);
-
-    mobileAiToggleBtn = Button.CreateSimpleButton("mobileAiToggle", isP2Computer ? "🤖" : "👤");
-    mobileAiToggleBtn.width = "36px";
-    mobileAiToggleBtn.height = "36px";
-    mobileAiToggleBtn.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
-    mobileAiToggleBtn.color = COLORS.textPrimary;
-    mobileAiToggleBtn.cornerRadius = 18;
-    mobileAiToggleBtn.fontSize = 16;
-    mobileAiToggleBtn.thickness = 0;
-    mobileAiToggleBtn.onPointerClickObservable.add(() => {
-      isP2Computer = !isP2Computer;
-      if (mobileAiToggleBtn && mobileAiToggleBtn.textBlock) {
-        mobileAiToggleBtn.textBlock.text = isP2Computer ? "🤖" : "👤";
-      }
-      mobileAiToggleBtn!.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
-    });
-    tabsContainer.addControl(mobileAiToggleBtn);
-
     // Team color swatches (right side)
     const colorContainer = new StackPanel("mobileColorContainer");
     colorContainer.isVertical = false;
@@ -495,6 +472,31 @@ export function createLoadoutScene(
     topBar.addControl(colorContainer);
 
     createTeamColorSwatches(colorContainer, () => currentTeam);
+
+    // AI toggle row (only visible on P2 tab)
+    mobileAiToggleRow = new Rectangle("mobileAiToggleRow");
+    mobileAiToggleRow.width = "95%";
+    mobileAiToggleRow.height = "40px";
+    mobileAiToggleRow.background = COLORS.bgButton;
+    mobileAiToggleRow.cornerRadius = 6;
+    mobileAiToggleRow.thickness = 0;
+    mobileAiToggleRow.isVisible = false; // Hidden by default (P1 is selected)
+    mainStack.addControl(mobileAiToggleRow);
+
+    mobileAiToggleText = new TextBlock("mobileAiToggleText");
+    mobileAiToggleText.text = isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF";
+    mobileAiToggleText.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
+    mobileAiToggleText.fontSize = fontSize;
+    mobileAiToggleRow.addControl(mobileAiToggleText);
+
+    mobileAiToggleRow.onPointerClickObservable.add(() => {
+      isP2Computer = !isP2Computer;
+      if (mobileAiToggleText) {
+        mobileAiToggleText.text = isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF";
+        mobileAiToggleText.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
+      }
+      mobileAiToggleRow!.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
+    });
   }
 
   function switchTeam(team: "player1" | "player2"): void {
@@ -503,11 +505,17 @@ export function createLoadoutScene(
       p1Tab.background = team === "player1" ? COLORS.selected : COLORS.bgButton;
       p2Tab.background = team === "player2" ? COLORS.selected : COLORS.bgButton;
     }
-    // Show/hide appropriate cards
-    p1Cards.forEach(c => c.isVisible = team === "player1");
-    p2Cards.forEach(c => c.isVisible = team === "player2");
+    // Show/hide appropriate border containers (on mobile)
+    if (p1BorderContainer && p2BorderContainer && isMobile) {
+      p1BorderContainer.isVisible = team === "player1";
+      p2BorderContainer.isVisible = team === "player2";
+    }
     // Update mobile color swatches
     mobileColorRefresh?.();
+    // Update mobile AI toggle visibility (only show on P2)
+    if (mobileAiToggleRow) {
+      mobileAiToggleRow.isVisible = team === "player2";
+    }
   }
 
   function createTeamColorSwatches(parent: StackPanel, getTeam: () => "player1" | "player2"): void {
@@ -546,8 +554,15 @@ export function createLoadoutScene(
         if (getOtherColor() === teamColor.hex) return;
         setThisColor(teamColor.hex);
         refreshSwatches();
+        // Update border container color
+        const team = getTeam();
+        if (team === "player1" && p1BorderContainer) {
+          p1BorderContainer.color = teamColor.hex;
+        } else if (team === "player2" && p2BorderContainer) {
+          p2BorderContainer.color = teamColor.hex;
+        }
         // Refresh previews
-        previewRefreshCallbacks[getTeam()].forEach(cb => cb());
+        previewRefreshCallbacks[team].forEach(cb => cb());
       });
 
       swatches.push(swatch);
@@ -573,17 +588,54 @@ export function createLoadoutScene(
   // UNIT CARDS
   // ============================================
 
+  // Track team border containers for color updates
+  let p1BorderContainer: Rectangle | null = null;
+  let p2BorderContainer: Rectangle | null = null;
+
   if (isMobile) {
+    // Mobile: Create bordered container for each team's cards
+    p1BorderContainer = new Rectangle("p1BorderContainer");
+    p1BorderContainer.width = "95%";
+    p1BorderContainer.thickness = 3;
+    p1BorderContainer.color = selections.player1TeamColor || TEAM_COLORS[DEFAULT_PLAYER1_COLOR_INDEX].hex;
+    p1BorderContainer.cornerRadius = 12;
+    p1BorderContainer.background = "transparent";
+    p1BorderContainer.paddingTop = "8px";
+    p1BorderContainer.paddingBottom = "8px";
+    p1BorderContainer.adaptHeightToChildren = true;
+    mainStack.addControl(p1BorderContainer);
+
+    const p1CardsStack = new StackPanel("p1CardsStack");
+    p1CardsStack.width = "100%";
+    p1CardsStack.isVertical = true;
+    p1BorderContainer.addControl(p1CardsStack);
+
+    p2BorderContainer = new Rectangle("p2BorderContainer");
+    p2BorderContainer.width = "95%";
+    p2BorderContainer.thickness = 3;
+    p2BorderContainer.color = selections.player2TeamColor || TEAM_COLORS[DEFAULT_PLAYER2_COLOR_INDEX].hex;
+    p2BorderContainer.cornerRadius = 12;
+    p2BorderContainer.background = "transparent";
+    p2BorderContainer.paddingTop = "8px";
+    p2BorderContainer.paddingBottom = "8px";
+    p2BorderContainer.adaptHeightToChildren = true;
+    p2BorderContainer.isVisible = false;
+    mainStack.addControl(p2BorderContainer);
+
+    const p2CardsStack = new StackPanel("p2CardsStack");
+    p2CardsStack.width = "100%";
+    p2CardsStack.isVertical = true;
+    p2BorderContainer.addControl(p2CardsStack);
+
     // Mobile: Vertical stack of 3 cards per team
     for (let i = 0; i < UNITS_PER_TEAM; i++) {
       const p1Card = createUnitCard("player1", i);
       p1Cards.push(p1Card);
-      mainStack.addControl(p1Card);
+      p1CardsStack.addControl(p1Card);
 
       const p2Card = createUnitCard("player2", i);
-      p2Card.isVisible = false;
       p2Cards.push(p2Card);
-      mainStack.addControl(p2Card);
+      p2CardsStack.addControl(p2Card);
     }
   } else {
     // Desktop/Tablet: Two rows of 3 cards
@@ -592,14 +644,24 @@ export function createLoadoutScene(
     const p1Header = createTeamHeader("player1", "PLAYER 1");
     mainStack.addControl(p1Header);
 
+    // Bordered container for P1 cards
+    p1BorderContainer = new Rectangle("p1BorderContainerDesktop");
+    p1BorderContainer.width = "95%";
+    p1BorderContainer.height = `${screenHeight * 0.38}px`;
+    p1BorderContainer.thickness = 3;
+    p1BorderContainer.color = selections.player1TeamColor || TEAM_COLORS[DEFAULT_PLAYER1_COLOR_INDEX].hex;
+    p1BorderContainer.cornerRadius = 12;
+    p1BorderContainer.background = "transparent";
+    mainStack.addControl(p1BorderContainer);
+
     const p1Row = new Grid("p1Row");
-    p1Row.width = "95%";
-    p1Row.height = `${screenHeight * 0.38}px`;
+    p1Row.width = "100%";
+    p1Row.height = "100%";
     p1Row.addColumnDefinition(1/3);
     p1Row.addColumnDefinition(1/3);
     p1Row.addColumnDefinition(1/3);
     p1Row.addRowDefinition(1);
-    mainStack.addControl(p1Row);
+    p1BorderContainer.addControl(p1Row);
 
     for (let i = 0; i < UNITS_PER_TEAM; i++) {
       const card = createUnitCard("player1", i);
@@ -618,14 +680,24 @@ export function createLoadoutScene(
     const p2Header = createTeamHeader("player2", "PLAYER 2");
     mainStack.addControl(p2Header);
 
+    // Bordered container for P2 cards
+    p2BorderContainer = new Rectangle("p2BorderContainerDesktop");
+    p2BorderContainer.width = "95%";
+    p2BorderContainer.height = `${screenHeight * 0.38}px`;
+    p2BorderContainer.thickness = 3;
+    p2BorderContainer.color = selections.player2TeamColor || TEAM_COLORS[DEFAULT_PLAYER2_COLOR_INDEX].hex;
+    p2BorderContainer.cornerRadius = 12;
+    p2BorderContainer.background = "transparent";
+    mainStack.addControl(p2BorderContainer);
+
     const p2Row = new Grid("p2Row");
-    p2Row.width = "95%";
-    p2Row.height = `${screenHeight * 0.38}px`;
+    p2Row.width = "100%";
+    p2Row.height = "100%";
     p2Row.addColumnDefinition(1/3);
     p2Row.addColumnDefinition(1/3);
     p2Row.addColumnDefinition(1/3);
     p2Row.addRowDefinition(1);
-    mainStack.addControl(p2Row);
+    p2BorderContainer.addControl(p2Row);
 
     for (let i = 0; i < UNITS_PER_TEAM; i++) {
       const card = createUnitCard("player2", i);
@@ -687,9 +759,12 @@ export function createLoadoutScene(
         }
         aiToggleBtn.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
         // Update mobile toggle if exists
-        if (mobileAiToggleBtn && mobileAiToggleBtn.textBlock) {
-          mobileAiToggleBtn.textBlock.text = isP2Computer ? "🤖" : "👤";
-          mobileAiToggleBtn.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
+        if (mobileAiToggleText) {
+          mobileAiToggleText.text = isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF";
+          mobileAiToggleText.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
+        }
+        if (mobileAiToggleRow) {
+          mobileAiToggleRow.background = isP2Computer ? COLORS.accentBlueDeep : COLORS.bgButton;
         }
       });
       aiToggleContainer.addControl(aiToggleBtn);
@@ -731,8 +806,10 @@ export function createLoadoutScene(
         if (getOtherColor() === tc.hex) return;
         if (playerId === "player1") {
           selections.player1TeamColor = tc.hex;
+          if (p1BorderContainer) p1BorderContainer.color = tc.hex;
         } else {
           selections.player2TeamColor = tc.hex;
+          if (p2BorderContainer) p2BorderContainer.color = tc.hex;
         }
         nameText.color = tc.hex;
         refreshSwatches();
@@ -791,6 +868,10 @@ export function createLoadoutScene(
     copyGrid.addColumnDefinition(1);
     copyGrid.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     copyGrid.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    copyGrid.paddingLeft = "8px";
+    copyGrid.paddingRight = "4px";
+    copyGrid.paddingTop = "4px";
+    copyGrid.paddingBottom = "4px";
     cardGrid.addControl(copyGrid, 0, 0);
 
     // Title row: Symbol + Class name on left, Edit button on right
@@ -930,16 +1011,69 @@ export function createLoadoutScene(
     container.addControl(previewImage);
 
     let frameCount = 0;
-    let previewDirty = 30;
     let previewModelLoaded = false;
 
+    // Rotation and animation cycling state
+    const rotationSpeed = 0.008; // Radians per frame (slow rotation)
+    let totalRotation = 0;
+    let currentAnimPhase = 0; // 0=idle, 1=attack, 2=run
+    let isPlayingOneShot = false; // Track if attack animation is playing
+
     rtt.onAfterRenderObservable.add(() => {
-      if (previewDirty <= 0 || !previewModelLoaded) return;
+      if (!previewModelLoaded) return;
 
       frameCount++;
-      if (frameCount % 2 !== 0) return;
 
-      previewDirty--;
+      // Rotate camera slowly
+      previewCamera.alpha += rotationSpeed;
+      totalRotation += rotationSpeed;
+
+      // After one full rotation, cycle to next animation
+      if (totalRotation >= Math.PI * 2) {
+        totalRotation = 0;
+
+        if (!isPlayingOneShot) {
+          currentAnimPhase = (currentAnimPhase + 1) % 3;
+
+          const state = unitStates[key];
+          const isMelee = state.selectedStyle === "melee";
+
+          // Stop current animations
+          unitPreviewAnims.forEach(ag => ag.stop());
+
+          if (currentAnimPhase === 0) {
+            // Idle
+            const idleAnim = isMelee
+              ? unitPreviewAnims.find(ag => ag.name === "Idle_Sword")
+              : unitPreviewAnims.find(ag => ag.name === "Idle_Gun");
+            if (idleAnim) idleAnim.start(true);
+          } else if (currentAnimPhase === 1) {
+            // Attack (one-shot, then back to idle)
+            const attackAnim = isMelee
+              ? unitPreviewAnims.find(ag => ag.name === "Sword_Slash")
+              : unitPreviewAnims.find(ag => ag.name === "Gun_Shoot");
+            if (attackAnim) {
+              isPlayingOneShot = true;
+              attackAnim.start(false);
+              attackAnim.onAnimationEndObservable.addOnce(() => {
+                isPlayingOneShot = false;
+                // Return to idle after attack
+                const idleAnim = isMelee
+                  ? unitPreviewAnims.find(ag => ag.name === "Idle_Sword")
+                  : unitPreviewAnims.find(ag => ag.name === "Idle_Gun");
+                if (idleAnim) idleAnim.start(true);
+              });
+            }
+          } else if (currentAnimPhase === 2) {
+            // Run
+            const runAnim = unitPreviewAnims.find(ag => ag.name === "Run");
+            if (runAnim) runAnim.start(true);
+          }
+        }
+      }
+
+      // Only update image every few frames for performance
+      if (frameCount % 2 !== 0) return;
 
       rtt.readPixels()?.then((buffer) => {
         if (!buffer) return;
@@ -1024,7 +1158,10 @@ export function createLoadoutScene(
         idleAnim.start(true);
       }
 
-      previewDirty = 30;
+      // Reset animation cycle when appearance changes
+      currentAnimPhase = 0;
+      totalRotation = 0;
+      isPlayingOneShot = false;
     };
 
     const loadUnitPreview = (): void => {
