@@ -195,9 +195,22 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     hitMedium: new Audio(SFX.hitMedium),
     hitHeavy: new Audio(SFX.hitHeavy),
     heal: new Audio(SFX.heal),
+    swordSwing: new Audio(SFX.swordSwing),
+    gunShot: new Audio(SFX.gunShot),
+    concealUp: new Audio(SFX.concealUp),
+    concealDown: new Audio(SFX.concealDown),
+    death: new Audio(SFX.death),
+    coverUp: new Audio(SFX.coverUp),
+    coverDown: new Audio(SFX.coverDown),
+    speedUp: new Audio(SFX.speedUp),
   };
   // Set volume for all sound effects
   Object.values(sfx).forEach(sound => sound.volume = AUDIO_VOLUMES.sfx);
+  // Boost quieter effects
+  sfx.concealUp.volume = Math.min(1, AUDIO_VOLUMES.sfx * 1.5);
+  sfx.concealDown.volume = Math.min(1, AUDIO_VOLUMES.sfx * 1.5);
+  // Reduce louder effects
+  sfx.gunShot.volume = AUDIO_VOLUMES.sfx * 0.7;
   // Note: playSfx is now imported from utils
 
   // Camera - using centralized constants for isometric tactical view
@@ -1657,8 +1670,10 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     // Show speed boost message if skipping actions
     if (unusedActions >= 2) {
       showBattleMessage("Super Speed Boost!", unit.teamColor);
+      playSfx(sfx.speedUp);
     } else if (unusedActions === 1) {
       showBattleMessage("Speed Boost!", unit.teamColor);
+      playSfx(sfx.speedUp);
     }
 
     // Clear turn state
@@ -3199,6 +3214,9 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       const isMelee = attacker.customization?.combatStyle === "melee";
       const attackAnim = isMelee ? "Sword_Slash" : "Gun_Shoot";
 
+      // Play swing/shot sound immediately with animation
+      playSfx(isMelee ? sfx.swordSwing : sfx.gunShot);
+
       // Play attacker animation, then apply damage after a delay for impact
       playAnimation(attacker, attackAnim, false, () => {
         playIdleAnimation(attacker);
@@ -3212,6 +3230,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
           removeConcealVisual(defender);
           console.log(`${defender.team} ${defender.unitClass}'s Conceal was broken! Damage negated!`);
           showBattleMessage("Conceal Broken!", defender.teamColor);
+          playSfx(sfx.concealDown);
           // Light hit sound for conceal break
           playSfx(sfx.hitLight);
 
@@ -3243,12 +3262,14 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         if (defender.isCovering) {
           console.log(`${defender.team} ${defender.unitClass}'s Cover is broken by being hit!`);
           showBattleMessage("Cover Broken!", defender.teamColor);
+          playSfx(sfx.coverDown);
           endCover(defender);
         }
 
         if (defender.hp <= 0) {
           console.log(`${defender.team} ${defender.unitClass} was defeated!`);
           showBattleMessage("Unit Down!", defender.teamColor);
+          playSfx(sfx.death);
 
           playAnimation(defender, "Death", false, () => {
             defender.mesh.dispose();
@@ -3355,6 +3376,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       applyConcealVisual(unit);
       console.log(`${unit.team} ${unit.unitClass} activates Conceal!`);
       showBattleMessage("Conceal!", unit.teamColor);
+      playSfx(sfx.concealUp);
 
       // Play interact animation
       if (unit.modelMeshes) {
@@ -3434,6 +3456,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
         console.log(`${unit.team} ${unit.unitClass} activates Cover! (${coveredTiles.length} tiles)`);
         showBattleMessage("Cover Activated!", unit.teamColor);
+        playSfx(sfx.coverUp);
       } else {
         updateHazardStripes();  // Update after deactivation
         console.log(`${unit.team} ${unit.unitClass} deactivates Cover.`);

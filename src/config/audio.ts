@@ -38,6 +38,30 @@ export const SFX = {
 
   /** Healing sound effect */
   heal: `${BASE}audio/effects/Cure1.wav`,
+
+  /** Sword swing sound (plays before hit) */
+  swordSwing: `${BASE}audio/effects/swoosh.ogg`,
+
+  /** Gun shot sound (plays before hit) */
+  gunShot: `${BASE}audio/effects/gunshot.ogg`,
+
+  /** Conceal activate sound */
+  concealUp: `${BASE}audio/effects/shieldUp.wav`,
+
+  /** Conceal broken sound */
+  concealDown: `${BASE}audio/effects/shieldDown.wav`,
+
+  /** Death sound */
+  death: `${BASE}audio/effects/death.wav`,
+
+  /** Cover activate sound */
+  coverUp: `${BASE}audio/effects/coverUp.wav`,
+
+  /** Cover broken sound (when hit while covering) */
+  coverDown: `${BASE}audio/effects/cover-down.wav`,
+
+  /** Speed boost sound */
+  speedUp: `${BASE}audio/effects/speed-up.wav`,
 } as const;
 
 // =============================================================================

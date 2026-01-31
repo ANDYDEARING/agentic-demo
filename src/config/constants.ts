@@ -127,7 +127,7 @@ export const PREVIEW_MODEL_OFFSET = 100;
 export const MOVEMENT_DURATION_PER_TILE = 0.3;
 
 /** Delay before applying damage after attack animation starts (ms) */
-export const ATTACK_IMPACT_DELAY_MS = 300;
+export const ATTACK_IMPACT_DELAY_MS = 150;
 
 /** Title screen fade-in duration (seconds) */
 export const TITLE_FADE_IN_DURATION = 1.5;
