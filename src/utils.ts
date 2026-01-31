@@ -669,6 +669,8 @@ export interface ResponsiveOverlay {
   show: () => void;
   hide: () => void;
   isVisible: () => boolean;
+  /** Clean up all listeners - call on scene dispose */
+  dispose: () => void;
 }
 
 /**
@@ -725,6 +727,7 @@ export function createResponsiveOverlay(
 
   const divider = new Rectangle("divider");
   divider.width = "80%";
+  divider.height = "2px"; // Initial pixel height to avoid StackPanel warning
   divider.background = "rgba(255, 150, 80, 0.4)";
   divider.thickness = 0;
   header.addControl(divider);
@@ -771,6 +774,8 @@ export function createResponsiveOverlay(
   let toggleButton: Button | null = null;
   if (config.toggle) {
     toggleButton = Button.CreateSimpleButton("toggle", config.toggle.label);
+    toggleButton.width = "120px"; // Initial pixel size, updated by updateLayout
+    toggleButton.height = "40px";
     toggleButton.background = "rgba(40, 50, 60, 0.8)";
     toggleButton.cornerRadius = 4;
     toggleButton.thickness = 1;
@@ -816,6 +821,8 @@ export function createResponsiveOverlay(
     }
 
     const btn = Button.CreateSimpleButton(`btn${i}`, btnConfig.label);
+    btn.width = "120px"; // Initial pixel size, updated by updateLayout
+    btn.height = "40px";
     const isPrimary = btnConfig.style !== 'secondary';
     btn.background = isPrimary ? "rgba(80, 40, 30, 0.8)" : "rgba(40, 50, 60, 0.8)";
     btn.cornerRadius = 4;
@@ -925,5 +932,12 @@ export function createResponsiveOverlay(
       }
     },
     isVisible: () => overlay.isVisible,
+    dispose: () => {
+      // Clean up scroll listeners if overlay was shown
+      if (scrollCleanup) {
+        scrollCleanup.dispose();
+        scrollCleanup = null;
+      }
+    },
   };
 }

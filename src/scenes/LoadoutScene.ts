@@ -268,8 +268,8 @@ export function createLoadoutScene(
   // Current team for mobile view
   let currentTeam: "player1" | "player2" = "player1";
 
-  // AI toggle for Player 2 (defaults to human vs human)
-  let isP2Computer = gameMode === "local-pve";
+  // AI toggle for Player 2 (defaults to computer controlled)
+  let isP2Computer = true;
 
   // Track callbacks
   const previewRefreshCallbacks: { player1: (() => void)[]; player2: (() => void)[] } = {

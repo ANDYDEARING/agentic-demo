@@ -557,6 +557,11 @@ LINE OF SIGHT:
     howToOverlay.show();
   }
 
+  // Clean up overlay listeners on scene dispose (prevents memory leaks)
+  scene.onDisposeObservable.add(() => {
+    howToOverlay.dispose();
+  });
+
   // === CREATE EMBERS (after panel so they render on top) ===
   const numEmbers = 30;
   for (let i = 0; i < numEmbers; i++) {
