@@ -1654,6 +1654,13 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     const unusedActions = turnState?.actionsRemaining ?? 0;
     unit.speedBonus = unusedActions * SPEED_BONUS_PER_UNUSED_ACTION;
 
+    // Show speed boost message if skipping actions
+    if (unusedActions >= 2) {
+      showBattleMessage("Super Speed Boost!", unit.teamColor);
+    } else if (unusedActions === 1) {
+      showBattleMessage("Speed Boost!", unit.teamColor);
+    }
+
     // Clear turn state
     turnState = null;
     currentActionMode = "none";
@@ -2516,6 +2523,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     }
 
     console.log(`${coveringUnit.team} ${coveringUnit.unitClass} triggers Cover reaction on ${targetUnit.team} ${targetUnit.unitClass}!`);
+    showBattleMessage("Cover Counter!", coveringUnit.teamColor);
 
     // Execute the cover reaction attack
     executeAttack(coveringUnit, targetUnit, () => {
@@ -3203,6 +3211,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
           defender.isConcealed = false;
           removeConcealVisual(defender);
           console.log(`${defender.team} ${defender.unitClass}'s Conceal was broken! Damage negated!`);
+          showBattleMessage("Conceal Broken!", defender.teamColor);
           // Light hit sound for conceal break
           playSfx(sfx.hitLight);
 
@@ -3233,11 +3242,13 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         // Cancel cover when hit (even if surviving)
         if (defender.isCovering) {
           console.log(`${defender.team} ${defender.unitClass}'s Cover is broken by being hit!`);
+          showBattleMessage("Cover Broken!", defender.teamColor);
           endCover(defender);
         }
 
         if (defender.hp <= 0) {
           console.log(`${defender.team} ${defender.unitClass} was defeated!`);
+          showBattleMessage("Unit Down!", defender.teamColor);
 
           playAnimation(defender, "Death", false, () => {
             defender.mesh.dispose();
@@ -3287,6 +3298,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       const healedAmount = Math.min(healer.healAmount, target.maxHp - target.hp);
       target.hp += healedAmount;
       console.log(`${healer.team} ${healer.unitClass} heals ${target.team} ${target.unitClass} for ${healedAmount} HP! (${target.hp}/${target.maxHp} HP)`);
+      showBattleMessage("Heal!", healer.teamColor);
 
       playSfx(sfx.heal);
       updateHpBar(target);
@@ -3342,6 +3354,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       unit.isConcealed = true;
       applyConcealVisual(unit);
       console.log(`${unit.team} ${unit.unitClass} activates Conceal!`);
+      showBattleMessage("Conceal!", unit.teamColor);
 
       // Play interact animation
       if (unit.modelMeshes) {
@@ -3420,6 +3433,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         updateHazardStripes();  // Check for dual-covered tiles
 
         console.log(`${unit.team} ${unit.unitClass} activates Cover! (${coveredTiles.length} tiles)`);
+        showBattleMessage("Cover Activated!", unit.teamColor);
       } else {
         updateHazardStripes();  // Update after deactivation
         console.log(`${unit.team} ${unit.unitClass} deactivates Cover.`);
@@ -4949,6 +4963,86 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   queuedActionsPanel.addControl(queuedActionsStack);
 
   gui.addControl(queuedActionsPanel);
+
+  // ============================================
+  // BATTLE MESSAGE UI (above queued actions)
+  // ============================================
+
+  const battleMessageText = new TextBlock("battleMessage");
+  battleMessageText.fontSize = 28;
+  battleMessageText.fontWeight = "bold";
+  battleMessageText.color = "#ffffff";
+  battleMessageText.outlineColor = "#000000";
+  battleMessageText.outlineWidth = 3;
+  battleMessageText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  battleMessageText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+  battleMessageText.top = "-80px"; // Above the queued actions panel
+  battleMessageText.isVisible = false;
+  battleMessageText.zIndex = 100; // Above health bars and symbols
+  gui.addControl(battleMessageText);
+
+  let battleMessageTimeout: ReturnType<typeof setTimeout> | null = null;
+  let battleMessageAnimationId: number | null = null;
+
+  /**
+   * Show a battle message with team color and swoop animation
+   * @param text The message to display
+   * @param teamColor The Color3 of the relevant team
+   */
+  function showBattleMessage(text: string, teamColor: Color3): void {
+    // Cancel any existing message
+    if (battleMessageTimeout) {
+      clearTimeout(battleMessageTimeout);
+      battleMessageTimeout = null;
+    }
+    if (battleMessageAnimationId !== null) {
+      cancelAnimationFrame(battleMessageAnimationId);
+      battleMessageAnimationId = null;
+    }
+
+    // Set text and color
+    battleMessageText.text = text;
+    battleMessageText.color = teamColor.toHexString();
+    battleMessageText.isVisible = true;
+
+    // Animation state
+    const startTime = performance.now();
+    const swoopInDuration = 200; // ms to swoop in from left
+    const holdDuration = 1600; // ms to hold in center
+    const swoopOutDuration = 200; // ms to swoop out to right
+    const totalDuration = swoopInDuration + holdDuration + swoopOutDuration;
+
+    function animate(): void {
+      const elapsed = performance.now() - startTime;
+
+      if (elapsed < swoopInDuration) {
+        // Swoop in from left
+        const t = elapsed / swoopInDuration;
+        const easeOut = 1 - Math.pow(1 - t, 3); // Cubic ease out
+        const offsetX = -300 * (1 - easeOut);
+        battleMessageText.left = `${offsetX}px`;
+        battleMessageAnimationId = requestAnimationFrame(animate);
+      } else if (elapsed < swoopInDuration + holdDuration) {
+        // Hold in center
+        battleMessageText.left = "0px";
+        battleMessageAnimationId = requestAnimationFrame(animate);
+      } else if (elapsed < totalDuration) {
+        // Swoop out to right
+        const t = (elapsed - swoopInDuration - holdDuration) / swoopOutDuration;
+        const easeIn = Math.pow(t, 3); // Cubic ease in
+        const offsetX = 300 * easeIn;
+        battleMessageText.left = `${offsetX}px`;
+        battleMessageAnimationId = requestAnimationFrame(animate);
+      } else {
+        // Animation complete
+        battleMessageText.isVisible = false;
+        battleMessageText.left = "0px";
+        battleMessageAnimationId = null;
+      }
+    }
+
+    battleMessageAnimationId = requestAnimationFrame(animate);
+  }
 
   function updateQueuedActionsDisplay(): void {
     queuedActionsStack.clearControls();
