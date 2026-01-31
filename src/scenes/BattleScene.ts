@@ -3112,7 +3112,12 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       } else if (action.type === "attack" && action.targetUnit) {
         // Check if target is still alive (may have been killed by previous action)
         if (action.targetUnit.hp <= 0) {
-          processNextAction(index + 1);
+          // If we're in dramatic camera mode (previous action skipped camera out), transition out now
+          if (isDramaticCamera) {
+            transitionFromDramaticCamera().then(() => processNextAction(index + 1));
+          } else {
+            processNextAction(index + 1);
+          }
           return;
         }
         // Execute attack - skip camera out if next action has same target
@@ -4958,6 +4963,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
     // Track cumulative HP changes across queued actions
     const hpDeltas = new Map<Unit, number>();
+    // Track units whose conceal will be broken by earlier queued attacks
+    const concealBroken = new Set<Unit>();
 
     for (let i = 0; i < turnState.pendingActions.length; i++) {
       const action = turnState.pendingActions[i];
@@ -4975,12 +4982,19 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         const targetDesignation = UNIT_DESIGNATIONS[target.loadoutIndex] || "?";
         const targetClass = getClassData(target.unitClass).name;
         const isMelee = currentUnit.customization?.combatStyle === "melee";
-        const damage = isMelee ? currentUnit.attack * MELEE_DAMAGE_MULTIPLIER : currentUnit.attack;
+        const baseDamage = isMelee ? currentUnit.attack * MELEE_DAMAGE_MULTIPLIER : currentUnit.attack;
+        // Check if target is concealed (and conceal hasn't been broken by earlier action)
+        const targetIsConcealed = target.isConcealed && !concealBroken.has(target);
+        const damage = targetIsConcealed ? 0 : baseDamage;
+        if (targetIsConcealed) {
+          concealBroken.add(target); // Mark conceal as broken for subsequent actions
+        }
         const pendingHp = Math.max(0, Math.min(target.maxHp, target.hp + (hpDeltas.get(target) || 0)));
         const newHp = Math.max(0, pendingHp - damage);
         hpDeltas.set(target, (hpDeltas.get(target) || 0) + (newHp - pendingHp));
         const verb = isMelee ? "Strike" : "Shoot";
-        actionLine.text = `Action ${n} of ${total}: ${unitDesignation} ${unitClassName} ${verb} ${targetDesignation} ${targetClass} ${pendingHp}→${newHp}`;
+        const concealNote = targetIsConcealed ? " (Conceal)" : "";
+        actionLine.text = `Action ${n} of ${total}: ${unitDesignation} ${unitClassName} ${verb} ${targetDesignation} ${targetClass} ${pendingHp}→${newHp}${concealNote}`;
         actionLine.color = "#ff6666";
       } else if (action.type === "ability" && action.abilityName === "heal" && action.targetUnit) {
         const target = action.targetUnit;
