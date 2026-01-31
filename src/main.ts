@@ -9,7 +9,12 @@ import type { Loadout, SceneName, GameMode } from "./types";
 export type { SceneName } from "./types";
 
 const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
-const engine = new Engine(canvas, true);
+const engine = new Engine(canvas, true, {
+  // Reduce shader complexity and improve stability
+  disableWebGL2Support: false,
+  stencil: true,
+  preserveDrawingBuffer: false,
+});
 
 // Handle WebGL context loss (happens when tab is idle for a while)
 canvas.addEventListener("webglcontextlost", (event) => {
@@ -24,6 +29,21 @@ canvas.addEventListener("webglcontextrestored", () => {
     const sceneName = currentSceneName;
     currentScene.dispose();
     navigateTo(sceneName);
+  }
+});
+
+// Catch unhandled shader/WebGL errors that might not trigger context loss
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = String(event.reason || "");
+  if (reason.includes("rgbdDecode") || reason.includes("maximum retries") || reason.includes("shader")) {
+    console.warn("Shader compilation error detected, attempting recovery:", reason);
+    event.preventDefault();
+    // Attempt to recover by recreating the current scene
+    if (currentScene && !currentScene.isDisposed) {
+      const sceneName = currentSceneName;
+      currentScene.dispose();
+      navigateTo(sceneName);
+    }
   }
 });
 

@@ -5007,6 +5007,17 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   return scene;
 }
 
+// Helper to disable IBL/environment features on PBR materials to prevent RGBD shader issues
+function disableMaterialIBL(meshes: AbstractMesh[]): void {
+  meshes.forEach(m => {
+    if (m.material && (m.material as PBRMaterial).reflectionTexture !== undefined) {
+      const mat = m.material as PBRMaterial;
+      mat.reflectionTexture = null;
+      mat.environmentIntensity = 0;
+    }
+  });
+}
+
 function createUnitMaterial(name: string, color: Color3, scene: Scene): StandardMaterial {
   const mat = new StandardMaterial(`${name}Mat`, scene);
   mat.diffuseColor = color;
@@ -5055,6 +5066,9 @@ async function createUnit(
   const modelRoot = result.meshes[0];
   const modelMeshes = result.meshes;
   const animationGroups = result.animationGroups;
+
+  // Disable IBL features to prevent RGBD shader timeout issues
+  disableMaterialIBL(modelMeshes);
 
   // Hide model initially until facing is set (prevents wrong-direction flash)
   modelRoot.setEnabled(false);

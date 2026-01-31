@@ -162,8 +162,23 @@ export function createLoadoutScene(
   // Track if scene has been disposed (prevents async operations on disposed scene)
   let sceneDisposed = false;
 
+  // Helper to disable IBL/environment features on PBR materials to prevent RGBD shader issues
+  const disableMaterialIBL = (meshes: AbstractMesh[]): void => {
+    meshes.forEach(m => {
+      if (m.material && (m.material as PBRMaterial).reflectionTexture !== undefined) {
+        const mat = m.material as PBRMaterial;
+        mat.reflectionTexture = null;
+        mat.environmentIntensity = 0;
+      }
+    });
+  };
+
   // Track RTTs for proper disposal
   const rttList: RenderTargetTexture[] = [];
+
+  // Track all loaded preview resources for cleanup on scene dispose
+  const loadedMeshes: AbstractMesh[] = [];
+  const loadedAnimationGroups: AnimationGroup[] = [];
 
   // Use centralized scene background color
   const bg = SCENE_BACKGROUNDS.loadout;
@@ -259,10 +274,37 @@ export function createLoadoutScene(
     }
   });
 
-  // Clean up RTTs before scene disposal
+  // Clean up all loaded resources before scene disposal
   scene.onDisposeObservable.add(() => {
     sceneDisposed = true;
-    // Properly dispose each RTT
+
+    // Dispose animation groups first (they reference meshes)
+    loadedAnimationGroups.forEach(ag => {
+      ag.stop();
+      ag.dispose();
+    });
+    loadedAnimationGroups.length = 0;
+
+    // Dispose materials before meshes (check via try-catch since Material doesn't have isDisposed)
+    loadedMeshes.forEach(m => {
+      try {
+        if (m.material) {
+          m.material.dispose(false, true);
+        }
+      } catch {
+        // Material already disposed
+      }
+    });
+
+    // Dispose meshes
+    loadedMeshes.forEach(m => {
+      if (!m.isDisposed()) {
+        m.dispose(false, true);
+      }
+    });
+    loadedMeshes.length = 0;
+
+    // Dispose RTTs
     rttList.forEach(rtt => {
       rtt.dispose();
     });
@@ -1296,11 +1338,21 @@ export function createLoadoutScene(
         if (rtt.renderList) {
           rtt.renderList.length = 0;
         }
-        unitPreviewMesh.dispose();
+        // Dispose materials before meshes to ensure cleanup
+        unitPreviewMeshes.forEach(m => {
+          if (m.material) {
+            m.material.dispose(false, true); // Don't dispose textures shared across materials
+          }
+        });
+        unitPreviewMesh.dispose(false, true); // Dispose children
         unitPreviewMesh = null;
         unitPreviewMeshes = [];
       }
-      unitPreviewAnims.forEach(a => a.stop());
+      // Dispose animation groups (not just stop)
+      unitPreviewAnims.forEach(a => {
+        a.stop();
+        a.dispose();
+      });
       unitPreviewAnims = [];
 
       const modelPath = `${import.meta.env.BASE_URL}models/${modelKey}.glb`;
@@ -1323,12 +1375,20 @@ export function createLoadoutScene(
           m.layerMask = layerMask;
         });
 
+        // Disable IBL features to prevent RGBD shader timeout issues
+        disableMaterialIBL(result.meshes);
+
         if (rtt.renderList) {
           rtt.renderList.length = 0;
           result.meshes.forEach(m => rtt.renderList!.push(m));
         }
 
         unitPreviewAnims = result.animationGroups;
+
+        // Register for cleanup on scene dispose
+        result.meshes.forEach(m => loadedMeshes.push(m));
+        result.animationGroups.forEach(ag => loadedAnimationGroups.push(ag));
+
         previewModelLoaded = true;
         updatePreviewAppearance();
       }).catch((error) => {
@@ -2180,11 +2240,21 @@ export function createLoadoutScene(
         if (editorRtt.renderList) {
           editorRtt.renderList.length = 0;
         }
-        editorPreviewMesh.dispose();
+        // Dispose materials before meshes
+        editorPreviewMeshes.forEach(m => {
+          if (m.material) {
+            m.material.dispose(false, true);
+          }
+        });
+        editorPreviewMesh.dispose(false, true);
         editorPreviewMesh = null;
         editorPreviewMeshes = [];
       }
-      editorPreviewAnimations.forEach(a => a.stop());
+      // Dispose animation groups (not just stop)
+      editorPreviewAnimations.forEach(a => {
+        a.stop();
+        a.dispose();
+      });
       editorPreviewAnimations = [];
 
       const modelPath = `${import.meta.env.BASE_URL}models/${modelKey}.glb`;
@@ -2207,12 +2277,20 @@ export function createLoadoutScene(
           m.layerMask = editorLayerMask;
         });
 
+        // Disable IBL features to prevent RGBD shader timeout issues
+        disableMaterialIBL(result.meshes);
+
         if (editorRtt.renderList) {
           editorRtt.renderList.length = 0;
           result.meshes.forEach(m => editorRtt.renderList!.push(m));
         }
 
         editorPreviewAnimations = result.animationGroups;
+
+        // Register for cleanup on scene dispose
+        result.meshes.forEach(m => loadedMeshes.push(m));
+        result.animationGroups.forEach(ag => loadedAnimationGroups.push(ag));
+
         updateEditorPreviewAppearance();
 
         // Start idle animation and enable rotation
@@ -2365,11 +2443,21 @@ export function createLoadoutScene(
       if (editorRtt.renderList) {
         editorRtt.renderList.length = 0;
       }
-      editorPreviewMesh.dispose();
+      // Dispose materials before meshes
+      editorPreviewMeshes.forEach(m => {
+        if (m.material) {
+          m.material.dispose(false, true);
+        }
+      });
+      editorPreviewMesh.dispose(false, true);
       editorPreviewMesh = null;
       editorPreviewMeshes = [];
     }
-    editorPreviewAnimations.forEach(a => a.stop());
+    // Dispose animation groups (not just stop)
+    editorPreviewAnimations.forEach(a => {
+      a.stop();
+      a.dispose();
+    });
     editorPreviewAnimations = [];
     editorLoadedModelKey = "";
     editorPreviewModelLoaded = false;
