@@ -1425,13 +1425,55 @@ export function createLoadoutScene(
   let editorPreviewMeshes: AbstractMesh[] = [];
   let editorPreviewAnimations: AnimationGroup[] = [];
   let editorLoadedModelKey = "";
+  let editorPreviewModelLoaded = false;
+
+  // Editor rotation and animation cycling state (same as main previews)
+  const editorRotationSpeed = 0.008; // Radians per frame (slow rotation)
+  let editorTotalRotation = 0;
+  let editorAnimPhase = 0; // 0=idle, 1=attack, 2=run
 
   let editorFrameCount = 0;
   editorRtt.onAfterRenderObservable.add(() => {
     if (!customizeOverlay.isVisible) return;
+    if (!editorPreviewModelLoaded) return;
 
     editorFrameCount++;
-    if (editorFrameCount % 3 !== 0) return;
+
+    // Rotate camera slowly
+    editorPreviewCamera.alpha += editorRotationSpeed;
+    editorTotalRotation += editorRotationSpeed;
+
+    // After one full rotation, cycle to next animation
+    if (editorTotalRotation >= Math.PI * 2) {
+      editorTotalRotation = 0;
+      editorAnimPhase = (editorAnimPhase + 1) % 3;
+
+      const isMelee = editingState?.selectedStyle === "melee";
+
+      // Stop current animations
+      editorPreviewAnimations.forEach(ag => ag.stop());
+
+      if (editorAnimPhase === 0) {
+        // Idle
+        const idleAnim = isMelee
+          ? editorPreviewAnimations.find(ag => ag.name === "Idle_Sword")
+          : editorPreviewAnimations.find(ag => ag.name === "Idle_Gun");
+        if (idleAnim) idleAnim.start(true);
+      } else if (editorAnimPhase === 1) {
+        // Attack (loop for full rotation)
+        const attackAnim = isMelee
+          ? editorPreviewAnimations.find(ag => ag.name === "Sword_Slash")
+          : editorPreviewAnimations.find(ag => ag.name === "Gun_Shoot");
+        if (attackAnim) attackAnim.start(true);
+      } else if (editorAnimPhase === 2) {
+        // Run (loop for full rotation)
+        const runAnim = editorPreviewAnimations.find(ag => ag.name === "Run");
+        if (runAnim) runAnim.start(true);
+      }
+    }
+
+    // Only update image every few frames for performance
+    if (editorFrameCount % 2 !== 0) return;
 
     editorRtt.readPixels()?.then((buffer) => {
       if (!buffer) return;
@@ -2132,6 +2174,7 @@ export function createLoadoutScene(
 
     if (modelKey !== editorLoadedModelKey) {
       // Load new model
+      editorPreviewModelLoaded = false;
       if (editorPreviewMesh) {
         if (editorRtt.renderList) {
           editorRtt.renderList.length = 0;
@@ -2170,6 +2213,14 @@ export function createLoadoutScene(
 
         editorPreviewAnimations = result.animationGroups;
         updateEditorPreviewAppearance();
+
+        // Start idle animation and enable rotation
+        const isMelee = editingState?.selectedStyle === "melee";
+        const idleAnim = isMelee
+          ? editorPreviewAnimations.find(ag => ag.name === "Idle_Sword")
+          : editorPreviewAnimations.find(ag => ag.name === "Idle_Gun");
+        if (idleAnim) idleAnim.start(true);
+        editorPreviewModelLoaded = true;
       }).catch((error) => {
         if (sceneDisposed) return; // Ignore errors after disposal
         console.error(`Failed to load editor model: ${modelPath}`, error);
@@ -2235,10 +2286,16 @@ export function createLoadoutScene(
     }
   }
 
+  // Track main scroll position to restore after editor closes
+  let savedMainScrollPosition = 0;
+
   function openCustomizeEditor(playerId: "player1" | "player2", unitIndex: number): void {
     editingPlayerId = playerId;
     editingUnitIndex = unitIndex;
     const key = `${playerId}_${unitIndex}`;
+
+    // Save main scroll position to restore on close
+    savedMainScrollPosition = scrollViewer.verticalBar.value;
 
     // Track for orientation reload
     customizeEditorOpen = true;
@@ -2257,6 +2314,11 @@ export function createLoadoutScene(
     };
 
     editorSymbol.text = UNIT_DESIGNATIONS[unitIndex];
+
+    // Reset editor rotation and animation state
+    editorTotalRotation = 0;
+    editorAnimPhase = 0;
+    editorPreviewCamera.alpha = -Math.PI / 2 + 0.2; // Reset camera angle
 
     refreshAllEditorOptions();
     updateDescriptions();
@@ -2296,6 +2358,9 @@ export function createLoadoutScene(
     editingState = null;
     customizeEditorOpen = false;
 
+    // Restore main scroll position
+    scrollViewer.verticalBar.value = savedMainScrollPosition;
+
     // Clean up editor preview model
     if (editorPreviewMesh) {
       if (editorRtt.renderList) {
@@ -2308,6 +2373,7 @@ export function createLoadoutScene(
     editorPreviewAnimations.forEach(a => a.stop());
     editorPreviewAnimations = [];
     editorLoadedModelKey = "";
+    editorPreviewModelLoaded = false;
   }
 
   // Custom drag-to-scroll for editor
