@@ -1461,9 +1461,12 @@ export function createLoadoutScene(
   const isSmallScreen = screenWidth < 1200;
   const isEditorPortrait = screenHeight > screenWidth;
 
+  // Mobile portrait: top half split between copy (left) and preview (right)
+  const isMobilePortrait = isSmallScreen && isEditorPortrait;
+
   if (isSmallScreen) {
     if (isEditorPortrait) {
-      // Small + portrait: preview on top, controls on bottom
+      // Small + portrait: top half (copy+preview split), bottom half (controls)
       editorGrid.addRowDefinition(0.5);
       editorGrid.addRowDefinition(0.5);
       editorGrid.addColumnDefinition(1);
@@ -1490,8 +1493,8 @@ export function createLoadoutScene(
   let previewSize: number;
   if (isSmallScreen) {
     if (isEditorPortrait) {
-      // Portrait: preview takes top half, so use half the height
-      previewSize = Math.min(screenWidth * 0.8, screenHeight * 0.45);
+      // Portrait: preview fills height of top half, width can be narrower (models are tall)
+      previewSize = screenHeight * 0.48; // Nearly full height of top half
     } else {
       // Landscape: preview takes right half, so use half the width
       previewSize = Math.min(screenWidth * 0.45, screenHeight * 0.8);
@@ -1502,21 +1505,91 @@ export function createLoadoutScene(
   }
   editorPreviewImage.width = `${previewSize}px`;
   editorPreviewImage.height = `${previewSize}px`;
+
+  // For mobile portrait, make preview area fill height
+  if (isMobilePortrait) {
+    previewArea.width = "100%";
+    previewArea.height = "100%";
+  }
   previewArea.addControl(editorPreviewImage);
 
-  // Place preview and options based on layout
-  // Preview is always on top (portrait) or right (landscape/large)
-  if (isSmallScreen) {
-    if (isEditorPortrait) {
-      // Small + portrait: preview on top (row 0), options on bottom (row 1)
-      editorGrid.addControl(previewArea, 0, 0);
-    } else {
+  // Mobile portrait: create top half container with copy (left) and preview (right)
+  let topHalfGrid: Grid | null = null;
+  let editorCopySymbol: TextBlock | null = null;
+  let editorCopyClass: TextBlock | null = null;
+  let editorCopyDesc: TextBlock | null = null;
+
+  if (isMobilePortrait) {
+    topHalfGrid = new Grid("topHalfGrid");
+    topHalfGrid.width = "100%";
+    topHalfGrid.height = "100%";
+    topHalfGrid.addColumnDefinition(0.5);
+    topHalfGrid.addColumnDefinition(0.5);
+    topHalfGrid.addRowDefinition(1);
+    editorGrid.addControl(topHalfGrid, 0, 0);
+
+    // Left side: Copy section (same as loadout card)
+    const copySection = new Rectangle("editorCopySection");
+    copySection.width = "100%";
+    copySection.height = "100%";
+    copySection.thickness = 0;
+    copySection.paddingLeft = "12px";
+    copySection.paddingRight = "8px";
+    copySection.paddingTop = "12px";
+    topHalfGrid.addControl(copySection, 0, 0);
+
+    const copyStack = new StackPanel("editorCopyStack");
+    copyStack.isVertical = true;
+    copyStack.width = "100%";
+    copyStack.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    copySection.addControl(copyStack);
+
+    // Symbol
+    editorCopySymbol = new TextBlock("editorCopySymbol");
+    editorCopySymbol.text = "Δ";
+    editorCopySymbol.color = COLORS.accentOrange;
+    editorCopySymbol.fontSize = 28;
+    editorCopySymbol.fontFamily = "'Bebas Neue', sans-serif";
+    editorCopySymbol.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    editorCopySymbol.resizeToFit = true;
+    editorCopySymbol.paddingBottom = "4px";
+    copyStack.addControl(editorCopySymbol);
+
+    // Class name
+    editorCopyClass = new TextBlock("editorCopyClass");
+    editorCopyClass.text = "Soldier";
+    editorCopyClass.color = COLORS.accentOrange;
+    editorCopyClass.fontSize = 20;
+    editorCopyClass.fontFamily = "'Bebas Neue', sans-serif";
+    editorCopyClass.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    editorCopyClass.resizeToFit = true;
+    editorCopyClass.paddingBottom = "8px";
+    copyStack.addControl(editorCopyClass);
+
+    // Description (same as loadout card - uses getUnitDescription)
+    editorCopyDesc = new TextBlock("editorCopyDesc");
+    editorCopyDesc.text = "";
+    editorCopyDesc.color = COLORS.textSecondary;
+    editorCopyDesc.fontSize = 11;
+    editorCopyDesc.textWrapping = true;
+    editorCopyDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    editorCopyDesc.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    editorCopyDesc.resizeToFit = true;
+    copyStack.addControl(editorCopyDesc);
+
+    // Right side: Preview
+    topHalfGrid.addControl(previewArea, 0, 1);
+  }
+
+  // Place preview and options based on layout (non-mobile-portrait cases)
+  if (!isMobilePortrait) {
+    if (isSmallScreen) {
       // Small + landscape: preview on right (col 1), options on left (col 0)
       editorGrid.addControl(previewArea, 0, 1);
+    } else {
+      // Large: preview on right (col 1)
+      editorGrid.addControl(previewArea, 0, 1);
     }
-  } else {
-    // Large: preview on right (col 1)
-    editorGrid.addControl(previewArea, 0, 1);
   }
 
   // Options panel (scrollable)
@@ -1705,17 +1778,23 @@ export function createLoadoutScene(
     return container;
   }
 
-  // Top section: Class/Boost/Weapon controls + description
+  // Top section: Class/Boost/Weapon controls (+ description on non-mobile-portrait)
   const topSectionGrid = new Grid("topSectionGrid");
   topSectionGrid.width = "100%";
   // Height for 3 options: each ~(24px label + buttonHeight + 16px padding) = ~84px each
   topSectionGrid.height = `${(24 + smallButtonHeight + 20) * 3}px`;
-  topSectionGrid.addColumnDefinition(0.5);
-  topSectionGrid.addColumnDefinition(0.5);
+  if (isMobilePortrait) {
+    // Mobile portrait: controls take full width (descriptions are in top half copy area)
+    topSectionGrid.addColumnDefinition(1);
+  } else {
+    // Other layouts: controls left, descriptions right
+    topSectionGrid.addColumnDefinition(0.5);
+    topSectionGrid.addColumnDefinition(0.5);
+  }
   topSectionGrid.addRowDefinition(1);
   optionsStack.addControl(topSectionGrid);
 
-  // Left column: controls
+  // Controls column (full width on mobile portrait, left column otherwise)
   const controlsStack = new StackPanel("controlsStack");
   controlsStack.isVertical = true;
   controlsStack.width = "100%";
@@ -1767,80 +1846,98 @@ export function createLoadoutScene(
     }
   ));
 
-  // Right column: descriptions for class, boost, weapon
-  const descStack = new StackPanel("descStack");
-  descStack.isVertical = true;
-  descStack.width = "100%";
-  descStack.paddingLeft = "10px";
-  descStack.paddingRight = "15px";
-  descStack.paddingTop = "8px";
-  descStack.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-  topSectionGrid.addControl(descStack, 0, 1);
+  // Right column: descriptions for class, boost, weapon (only for non-mobile-portrait)
+  let classTagline: TextBlock | null = null;
+  let abilityLabel: TextBlock | null = null;
+  let abilityDesc: TextBlock | null = null;
+  let boostDesc: TextBlock | null = null;
+  let weaponDesc: TextBlock | null = null;
 
-  // Class description
-  const classTagline = new TextBlock("classTagline");
-  classTagline.text = "";
-  classTagline.color = COLORS.textSecondary;
-  classTagline.fontSize = smallFontSize;
-  classTagline.textWrapping = true;
-  classTagline.resizeToFit = true;
-  classTagline.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-  classTagline.paddingBottom = "8px";
-  descStack.addControl(classTagline);
+  if (!isMobilePortrait) {
+    const descStack = new StackPanel("descStack");
+    descStack.isVertical = true;
+    descStack.width = "100%";
+    descStack.paddingLeft = "10px";
+    descStack.paddingRight = "15px";
+    descStack.paddingTop = "8px";
+    descStack.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    topSectionGrid.addControl(descStack, 0, 1);
 
-  const abilityLabel = new TextBlock("abilityLabel");
-  abilityLabel.text = "";
-  abilityLabel.color = COLORS.accentOrange;
-  abilityLabel.fontSize = smallFontSize;
-  abilityLabel.fontFamily = "'Bebas Neue', sans-serif";
-  abilityLabel.resizeToFit = true;
-  abilityLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-  descStack.addControl(abilityLabel);
+    // Class description
+    classTagline = new TextBlock("classTagline");
+    classTagline.text = "";
+    classTagline.color = COLORS.textSecondary;
+    classTagline.fontSize = smallFontSize;
+    classTagline.textWrapping = true;
+    classTagline.resizeToFit = true;
+    classTagline.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    classTagline.paddingBottom = "8px";
+    descStack.addControl(classTagline);
 
-  const abilityDesc = new TextBlock("abilityDesc");
-  abilityDesc.text = "";
-  abilityDesc.color = COLORS.textMuted;
-  abilityDesc.fontSize = smallFontSize;
-  abilityDesc.textWrapping = true;
-  abilityDesc.resizeToFit = true;
-  abilityDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-  abilityDesc.paddingBottom = "8px";
-  descStack.addControl(abilityDesc);
+    abilityLabel = new TextBlock("abilityLabel");
+    abilityLabel.text = "";
+    abilityLabel.color = COLORS.accentOrange;
+    abilityLabel.fontSize = smallFontSize;
+    abilityLabel.fontFamily = "'Bebas Neue', sans-serif";
+    abilityLabel.resizeToFit = true;
+    abilityLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    descStack.addControl(abilityLabel);
 
-  // Boost description
-  const boostDesc = new TextBlock("boostDesc");
-  boostDesc.text = "";
-  boostDesc.color = COLORS.textMuted;
-  boostDesc.fontSize = smallFontSize;
-  boostDesc.textWrapping = true;
-  boostDesc.resizeToFit = true;
-  boostDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-  boostDesc.paddingBottom = "8px";
-  descStack.addControl(boostDesc);
+    abilityDesc = new TextBlock("abilityDesc");
+    abilityDesc.text = "";
+    abilityDesc.color = COLORS.textMuted;
+    abilityDesc.fontSize = smallFontSize;
+    abilityDesc.textWrapping = true;
+    abilityDesc.resizeToFit = true;
+    abilityDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    abilityDesc.paddingBottom = "8px";
+    descStack.addControl(abilityDesc);
 
-  // Weapon description
-  const weaponDesc = new TextBlock("weaponDesc");
-  weaponDesc.text = "";
-  weaponDesc.color = COLORS.textMuted;
-  weaponDesc.fontSize = smallFontSize;
-  weaponDesc.textWrapping = true;
-  weaponDesc.resizeToFit = true;
-  weaponDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-  descStack.addControl(weaponDesc);
+    // Boost description
+    boostDesc = new TextBlock("boostDesc");
+    boostDesc.text = "";
+    boostDesc.color = COLORS.textMuted;
+    boostDesc.fontSize = smallFontSize;
+    boostDesc.textWrapping = true;
+    boostDesc.resizeToFit = true;
+    boostDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    boostDesc.paddingBottom = "8px";
+    descStack.addControl(boostDesc);
+
+    // Weapon description
+    weaponDesc = new TextBlock("weaponDesc");
+    weaponDesc.text = "";
+    weaponDesc.color = COLORS.textMuted;
+    weaponDesc.fontSize = smallFontSize;
+    weaponDesc.textWrapping = true;
+    weaponDesc.resizeToFit = true;
+    weaponDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    descStack.addControl(weaponDesc);
+  }
 
   function updateDescriptions(): void {
     if (!editingState) return;
-    // Class
     const classInfo = CLASS_INFO[editingState.selectedClass];
-    classTagline.text = `"${classInfo.tagline}"`;
-    abilityLabel.text = classInfo.abilityName;
-    abilityDesc.text = classInfo.abilityDesc;
-    // Boost
     const boost = BOOST_INFO[editingState.selectedBoost];
-    boostDesc.text = `${boost.desc} +${boost.value}% ${boost.stat}`;
-    // Weapon
     const weapon = WEAPON_INFO[editingState.selectedStyle];
-    weaponDesc.text = weapon.desc;
+
+    // Update non-mobile-portrait description column (if it exists)
+    if (classTagline) classTagline.text = `"${classInfo.tagline}"`;
+    if (abilityLabel) abilityLabel.text = classInfo.abilityName;
+    if (abilityDesc) abilityDesc.text = classInfo.abilityDesc;
+    if (boostDesc) boostDesc.text = `${boost.desc} +${boost.value}% ${boost.stat}`;
+    if (weaponDesc) weaponDesc.text = weapon.desc;
+
+    // Update mobile portrait copy section (same format as loadout cards)
+    if (editorCopySymbol && editorCopyClass && editorCopyDesc) {
+      editorCopySymbol.text = UNIT_DESIGNATIONS[editingUnitIndex];
+      editorCopyClass.text = classInfo.name;
+      editorCopyDesc.text = getUnitDescription(
+        editingState.selectedClass,
+        editingState.selectedBoost,
+        editingState.selectedStyle
+      );
+    }
   }
 
   // Separator with padding
