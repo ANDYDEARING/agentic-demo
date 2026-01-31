@@ -70,6 +70,28 @@ export const BATTLE_CAMERA_LOWER_RADIUS_LIMIT = 8;
 export const BATTLE_CAMERA_UPPER_RADIUS_LIMIT = 20;
 
 // =============================================================================
+// CAMERA (BATTLE SCENE - DRAMATIC ATTACK)
+// =============================================================================
+
+/** Distance from target (defender) for dramatic camera */
+export const DRAMATIC_CAMERA_RADIUS = 6;
+
+/** Vertical angle - 1.33 rad ≈ 76° (nearly horizontal, slight downward look) */
+export const DRAMATIC_CAMERA_BETA = 1.33;
+
+/** Height to look at on the target (defender's chest level) */
+export const DRAMATIC_CAMERA_TARGET_HEIGHT = 0.7;
+
+/** Duration of camera transition to dramatic position (ms) */
+export const DRAMATIC_CAMERA_TRANSITION_IN_MS = 350;
+
+/** Duration of camera transition back to normal (ms) */
+export const DRAMATIC_CAMERA_TRANSITION_OUT_MS = 450;
+
+/** How long to hold dramatic view after attack impact (ms) */
+export const DRAMATIC_CAMERA_HOLD_MS = 150;
+
+// =============================================================================
 // CAMERA (LOADOUT SCENE - PREVIEW)
 // =============================================================================
 

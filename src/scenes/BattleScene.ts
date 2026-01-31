@@ -89,6 +89,12 @@ import {
   BATTLE_MODEL_Y_POSITION,
   HP_BAR_ANCHOR_HEIGHT,
   HEAD_VARIANT_COUNT,
+  DRAMATIC_CAMERA_RADIUS,
+  DRAMATIC_CAMERA_BETA,
+  DRAMATIC_CAMERA_TARGET_HEIGHT,
+  DRAMATIC_CAMERA_TRANSITION_IN_MS,
+  DRAMATIC_CAMERA_TRANSITION_OUT_MS,
+  DRAMATIC_CAMERA_HOLD_MS,
 } from "../config";
 
 // Import audio config
@@ -3118,84 +3124,99 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   }
 
   // Execute attack (called during execution phase)
+  // Now includes dramatic camera transition for cinematic effect
   function executeAttack(attacker: Unit, defender: Unit, onComplete: () => void): void {
-    setUnitFacing(attacker, defender.gridX, defender.gridZ);
+    // Start dramatic camera transition, then execute attack
+    transitionToDramaticCamera(
+      attacker.gridX,
+      attacker.gridZ,
+      defender.gridX,
+      defender.gridZ
+    ).then(() => {
+      setUnitFacing(attacker, defender.gridX, defender.gridZ);
 
-    // Play attack animation based on combat style
-    const isMelee = attacker.customization?.combatStyle === "melee";
-    const attackAnim = isMelee ? "Sword_Slash" : "Gun_Shoot";
+      // Play attack animation based on combat style
+      const isMelee = attacker.customization?.combatStyle === "melee";
+      const attackAnim = isMelee ? "Sword_Slash" : "Gun_Shoot";
 
-    // Play attacker animation, then apply damage after a delay for impact
-    playAnimation(attacker, attackAnim, false, () => {
-      playIdleAnimation(attacker);
+      // Play attacker animation, then apply damage after a delay for impact
+      playAnimation(attacker, attackAnim, false, () => {
+        playIdleAnimation(attacker);
+      });
+
+      // Delay the impact to sync with attack animation (300ms for impact moment)
+      setTimeout(() => {
+        // Check if defender is concealed
+        if (defender.isConcealed) {
+          defender.isConcealed = false;
+          removeConcealVisual(defender);
+          console.log(`${defender.team} ${defender.unitClass}'s Conceal was broken! Damage negated!`);
+          // Light hit sound for conceal break
+          playSfx(sfx.hitLight);
+
+          playAnimation(defender, "HitRecieve", false, () => {
+            playIdleAnimation(defender);
+            setTimeout(() => {
+              transitionFromDramaticCamera().then(() => onComplete());
+            }, DRAMATIC_CAMERA_HOLD_MS);
+          });
+          return;
+        }
+
+        // Apply damage (melee does more damage - using centralized multiplier)
+        const isMeleeAttack = attacker.customization?.combatStyle === "melee";
+        const damage = isMeleeAttack ? attacker.attack * MELEE_DAMAGE_MULTIPLIER : attacker.attack;
+        defender.hp = Math.max(0, defender.hp - damage);
+        console.log(`${attacker.team} ${attacker.unitClass} attacks ${defender.team} ${defender.unitClass} for ${damage} damage! (${defender.hp}/${defender.maxHp} HP)`);
+
+        // Hit sounds based on weapon type
+        if (isMeleeAttack) playSfx(sfx.hitHeavy);
+        else playSfx(sfx.hitMedium);
+
+        updateHpBar(defender);
+
+        // Update status bar if current unit's HP changed
+        if (defender === currentUnit) {
+          updateCurrentUnitStatusBar();
+        }
+
+        // Cancel cover when hit (even if surviving)
+        if (defender.isCovering) {
+          console.log(`${defender.team} ${defender.unitClass}'s Cover is broken by being hit!`);
+          endCover(defender);
+        }
+
+        if (defender.hp <= 0) {
+          console.log(`${defender.team} ${defender.unitClass} was defeated!`);
+
+          playAnimation(defender, "Death", false, () => {
+            defender.mesh.dispose();
+            if (defender.hpBar) defender.hpBar.dispose();
+            if (defender.hpBarBg) defender.hpBarBg.dispose();
+            if (defender.designationLabel) defender.designationLabel.dispose();
+            if (defender.modelRoot) defender.modelRoot.dispose();
+            if (defender.animationGroups) defender.animationGroups.forEach(ag => ag.dispose());
+            setTimeout(() => {
+              transitionFromDramaticCamera().then(() => onComplete());
+            }, DRAMATIC_CAMERA_HOLD_MS);
+          });
+
+          const index = units.indexOf(defender);
+          if (index > -1) units.splice(index, 1);
+          const queueIndex = firstRoundQueue.indexOf(defender);
+          if (queueIndex > -1) firstRoundQueue.splice(queueIndex, 1);
+
+          checkWinCondition();
+        } else {
+          playAnimation(defender, "HitRecieve", false, () => {
+            playIdleAnimation(defender);
+            setTimeout(() => {
+              transitionFromDramaticCamera().then(() => onComplete());
+            }, DRAMATIC_CAMERA_HOLD_MS);
+          });
+        }
+      }, ATTACK_IMPACT_DELAY_MS); // Delay for attack animation to reach impact
     });
-
-    // Delay the impact to sync with attack animation (300ms for impact moment)
-    setTimeout(() => {
-      // Check if defender is concealed
-      if (defender.isConcealed) {
-        defender.isConcealed = false;
-        removeConcealVisual(defender);
-        console.log(`${defender.team} ${defender.unitClass}'s Conceal was broken! Damage negated!`);
-        // Light hit sound for conceal break
-        playSfx(sfx.hitLight);
-
-        playAnimation(defender, "HitRecieve", false, () => {
-          playIdleAnimation(defender);
-          onComplete();
-        });
-        return;
-      }
-
-      // Apply damage (melee does more damage - using centralized multiplier)
-      const isMeleeAttack = attacker.customization?.combatStyle === "melee";
-      const damage = isMeleeAttack ? attacker.attack * MELEE_DAMAGE_MULTIPLIER : attacker.attack;
-      defender.hp = Math.max(0, defender.hp - damage);
-      console.log(`${attacker.team} ${attacker.unitClass} attacks ${defender.team} ${defender.unitClass} for ${damage} damage! (${defender.hp}/${defender.maxHp} HP)`);
-
-      // Hit sounds based on weapon type
-      if (isMeleeAttack) playSfx(sfx.hitHeavy);
-      else playSfx(sfx.hitMedium);
-
-      updateHpBar(defender);
-
-      // Update status bar if current unit's HP changed
-      if (defender === currentUnit) {
-        updateCurrentUnitStatusBar();
-      }
-
-      // Cancel cover when hit (even if surviving)
-      if (defender.isCovering) {
-        console.log(`${defender.team} ${defender.unitClass}'s Cover is broken by being hit!`);
-        endCover(defender);
-      }
-
-      if (defender.hp <= 0) {
-        console.log(`${defender.team} ${defender.unitClass} was defeated!`);
-
-        playAnimation(defender, "Death", false, () => {
-          defender.mesh.dispose();
-          if (defender.hpBar) defender.hpBar.dispose();
-          if (defender.hpBarBg) defender.hpBarBg.dispose();
-          if (defender.designationLabel) defender.designationLabel.dispose();
-          if (defender.modelRoot) defender.modelRoot.dispose();
-          if (defender.animationGroups) defender.animationGroups.forEach(ag => ag.dispose());
-          onComplete();
-        });
-
-        const index = units.indexOf(defender);
-        if (index > -1) units.splice(index, 1);
-        const queueIndex = firstRoundQueue.indexOf(defender);
-        if (queueIndex > -1) firstRoundQueue.splice(queueIndex, 1);
-
-        checkWinCondition();
-      } else {
-        playAnimation(defender, "HitRecieve", false, () => {
-          playIdleAnimation(defender);
-          onComplete();
-        });
-      }
-    }, ATTACK_IMPACT_DELAY_MS); // Delay for attack animation to reach impact
   }
 
   // Execute heal (called during execution phase)
@@ -3472,7 +3493,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   // Click handling - infers action from what was clicked (no popup menu mode)
   scene.onPointerObservable.add((pointerInfo) => {
     if (gameOver) return;
-    if (isAnimatingMovement || isExecutingActions) return;  // Block input during animations
+    if (isAnimatingMovement || isExecutingActions || isDramaticCamera) return;  // Block input during animations
     if (pointerInfo.type !== PointerEventTypes.POINTERPICK) return;
 
     const pickedMesh = pointerInfo.pickInfo?.pickedMesh;
@@ -3577,6 +3598,191 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   let isPanning = false;
   let lastPanX = 0;
   let lastPanY = 0;
+
+  // ============================================
+  // DRAMATIC CAMERA SYSTEM
+  // ============================================
+  // When attacks are executed, camera zooms behind the attacker
+  // looking at the target for a more cinematic feel
+
+  interface SavedCameraState {
+    alpha: number;
+    beta: number;
+    radius: number;
+    target: Vector3;
+    lowerRadiusLimit: number;
+    upperRadiusLimit: number;
+  }
+
+  let savedCameraState: SavedCameraState | null = null;
+  let isDramaticCamera = false;
+  let dramaticCameraAnimationId: number | null = null;
+
+  /**
+   * Animates camera to a position behind the attacker, looking at the target.
+   * Creates an over-the-shoulder dramatic view for attacks.
+   * Returns a promise that resolves when the transition is complete.
+   */
+  function transitionToDramaticCamera(
+    attackerX: number,
+    attackerZ: number,
+    targetX: number,
+    targetZ: number
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      // Save current camera state including limits
+      savedCameraState = {
+        alpha: camera.alpha,
+        beta: camera.beta,
+        radius: camera.radius,
+        target: camera.target.clone(),
+        lowerRadiusLimit: camera.lowerRadiusLimit ?? 1,
+        upperRadiusLimit: camera.upperRadiusLimit ?? 100,
+      };
+
+      // Disable player controls during dramatic sequence
+      camera.detachControl();
+      isDramaticCamera = true;
+
+      // Temporarily remove camera limits for dramatic zoom
+      camera.lowerRadiusLimit = 1;
+      camera.upperRadiusLimit = 100;
+
+      // Kill any inertia that might fight our animation
+      camera.inertialAlphaOffset = 0;
+      camera.inertialBetaOffset = 0;
+      camera.inertialRadiusOffset = 0;
+      camera.inertialPanningX = 0;
+      camera.inertialPanningY = 0;
+
+      // Calculate world positions
+      const attackerWorldX = attackerX * TILE_SIZE - gridOffset;
+      const attackerWorldZ = attackerZ * TILE_SIZE - gridOffset;
+      const targetWorldX = targetX * TILE_SIZE - gridOffset;
+      const targetWorldZ = targetZ * TILE_SIZE - gridOffset;
+
+      // Camera looks at the defender at chest height
+      const finalTarget = new Vector3(targetWorldX, DRAMATIC_CAMERA_TARGET_HEIGHT, targetWorldZ);
+
+      // Direction from attacker to defender (attack direction)
+      const atkDirX = targetWorldX - attackerWorldX;
+      const atkDirZ = targetWorldZ - attackerWorldZ;
+      const dist = Math.sqrt(atkDirX * atkDirX + atkDirZ * atkDirZ);
+      const normX = dist > 0 ? atkDirX / dist : 0;
+      const normZ = dist > 0 ? atkDirZ / dist : 1;
+
+      // Calculate final camera WORLD position (behind attacker, elevated)
+      // Camera is BEHIND the attacker (opposite of attack direction)
+      // Using the tuned values: radius 6 from target, beta 1.33 (76 degrees from vertical)
+      const camHeight = DRAMATIC_CAMERA_RADIUS * Math.cos(DRAMATIC_CAMERA_BETA); // ~1.4 above target
+      const camHorizDist = DRAMATIC_CAMERA_RADIUS * Math.sin(DRAMATIC_CAMERA_BETA); // ~5.8 horizontal
+
+      // Position camera behind attacker: start at attacker, go backwards (negative direction)
+      const finalCamPos = new Vector3(
+        attackerWorldX - normX * camHorizDist,
+        finalTarget.y + camHeight,
+        attackerWorldZ - normZ * camHorizDist
+      );
+
+      // Get starting camera world position
+      const startCamPos = camera.position.clone();
+      const startTarget = camera.target.clone();
+
+      // Animate the transition using world positions
+      const startTime = performance.now();
+
+      function animateFrame(): void {
+        const elapsed = performance.now() - startTime;
+        const t = Math.min(elapsed / DRAMATIC_CAMERA_TRANSITION_IN_MS, 1);
+        // Ease out cubic for smooth deceleration
+        const eased = 1 - Math.pow(1 - t, 3);
+
+        // Clear inertia every frame to prevent fighting
+        camera.inertialAlphaOffset = 0;
+        camera.inertialBetaOffset = 0;
+        camera.inertialRadiusOffset = 0;
+
+        // Interpolate world positions
+        const newCamPos = Vector3.Lerp(startCamPos, finalCamPos, eased);
+        const newTarget = Vector3.Lerp(startTarget, finalTarget, eased);
+
+        // Set target first, then use setPosition to update camera
+        camera.target = newTarget;
+        camera.setPosition(newCamPos);
+
+        if (t < 1) {
+          dramaticCameraAnimationId = requestAnimationFrame(animateFrame);
+        } else {
+          dramaticCameraAnimationId = null;
+          resolve();
+        }
+      }
+
+      dramaticCameraAnimationId = requestAnimationFrame(animateFrame);
+    });
+  }
+
+  /**
+   * Transitions camera back to its saved state before the dramatic sequence.
+   * Returns a promise that resolves when the transition is complete.
+   */
+  function transitionFromDramaticCamera(): Promise<void> {
+    return new Promise((resolve) => {
+      if (!savedCameraState) {
+        isDramaticCamera = false;
+        resolve();
+        return;
+      }
+
+      const startTime = performance.now();
+      const startAlpha = camera.alpha;
+      const startBeta = camera.beta;
+      const startRadius = camera.radius;
+      const startTarget = camera.target.clone();
+
+      const endAlpha = savedCameraState.alpha;
+      const endBeta = savedCameraState.beta;
+      const endRadius = savedCameraState.radius;
+      const endTarget = savedCameraState.target;
+
+      function animateFrame(): void {
+        const elapsed = performance.now() - startTime;
+        const t = Math.min(elapsed / DRAMATIC_CAMERA_TRANSITION_OUT_MS, 1);
+        // Ease in-out cubic for smooth transition
+        const eased = t < 0.5
+          ? 4 * t * t * t
+          : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+        camera.alpha = startAlpha + (endAlpha - startAlpha) * eased;
+        camera.beta = startBeta + (endBeta - startBeta) * eased;
+        camera.radius = startRadius + (endRadius - startRadius) * eased;
+        camera.target = Vector3.Lerp(startTarget, endTarget, eased);
+
+        if (t < 1) {
+          dramaticCameraAnimationId = requestAnimationFrame(animateFrame);
+        } else {
+          dramaticCameraAnimationId = null;
+          isDramaticCamera = false;
+
+          // Restore camera limits (grab values before nulling)
+          const savedLowerLimit = savedCameraState?.lowerRadiusLimit ?? BATTLE_CAMERA_LOWER_RADIUS_LIMIT;
+          const savedUpperLimit = savedCameraState?.upperRadiusLimit ?? BATTLE_CAMERA_UPPER_RADIUS_LIMIT;
+          camera.lowerRadiusLimit = savedLowerLimit;
+          camera.upperRadiusLimit = savedUpperLimit;
+          savedCameraState = null;
+
+          // Re-enable camera controls based on current mode
+          if (cameraMode === "rotate") {
+            camera.attachControl(true);
+          }
+
+          resolve();
+        }
+      }
+
+      dramaticCameraAnimationId = requestAnimationFrame(animateFrame);
+    });
+  }
 
   // Compass button - top right, toggles pan mode
   const compassBtn = Button.CreateSimpleButton("compassBtn", "");
@@ -3699,11 +3905,16 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
   canvas.addEventListener("touchend", handleTouchEnd);
 
-  // Clean up touch listeners on scene dispose
+  // Clean up touch listeners and camera animation on scene dispose
   scene.onDisposeObservable.add(() => {
     canvas.removeEventListener("touchstart", handleTouchStart);
     canvas.removeEventListener("touchmove", handleTouchMove);
     canvas.removeEventListener("touchend", handleTouchEnd);
+    // Cancel any ongoing dramatic camera animation
+    if (dramaticCameraAnimationId !== null) {
+      cancelAnimationFrame(dramaticCameraAnimationId);
+      dramaticCameraAnimationId = null;
+    }
   });
 
   // Show camera mode toggle on all devices (iPad Pro users need it too)
@@ -4746,7 +4957,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   moveBtn.fontSize = 14;
   moveBtn.paddingBottom = "3px";
   moveBtn.onPointerClickObservable.add(() => {
-    if (currentUnit && !isAnimatingMovement) {
+    if (currentUnit && !isAnimatingMovement && !isDramaticCamera) {
       currentActionMode = "move";
       selectedUnit = currentUnit;
       highlightValidActions(currentUnit);
@@ -4764,7 +4975,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   attackBtn.fontSize = 14;
   attackBtn.paddingBottom = "3px";
   attackBtn.onPointerClickObservable.add(() => {
-    if (currentUnit && !isAnimatingMovement) {
+    if (currentUnit && !isAnimatingMovement && !isDramaticCamera) {
       currentActionMode = "attack";
       selectedUnit = currentUnit;
       // Highlight attack targets from shadow position (if pending move) or current position
@@ -4784,7 +4995,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   abilityBtn.cornerRadius = 5;
   abilityBtn.fontSize = 14;
   abilityBtn.onPointerClickObservable.add(() => {
-    if (currentUnit && !isAnimatingMovement && hasActionsRemaining()) {
+    if (currentUnit && !isAnimatingMovement && !isDramaticCamera && hasActionsRemaining()) {
       if (currentUnit.unitClass === "medic") {
         // Heal mode - highlight healable allies
         currentActionMode = "ability";
@@ -4858,7 +5069,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   menuExecuteBtn.cornerRadius = 5;
   menuExecuteBtn.fontSize = 12;
   menuExecuteBtn.onPointerClickObservable.add(() => {
-    if (currentUnit && !isExecutingActions) {
+    if (currentUnit && !isExecutingActions && !isDramaticCamera) {
       executeQueuedActions();
     }
   });
