@@ -1503,17 +1503,19 @@ export function createLoadoutScene(
   const isSmallScreen = screenWidth < 1200;
   const isEditorPortrait = screenHeight > screenWidth;
 
-  // Mobile portrait: top half split between copy (left) and preview (right)
+  // Mobile layouts: both use copy+preview section
   const isMobilePortrait = isSmallScreen && isEditorPortrait;
+  const isMobileLandscape = isSmallScreen && !isEditorPortrait;
+  const isMobileLayout = isMobilePortrait || isMobileLandscape;
 
   if (isSmallScreen) {
     if (isEditorPortrait) {
-      // Small + portrait: top half (copy+preview split), bottom half (controls)
+      // Small + portrait: top half (copy+preview), bottom half (controls)
       editorGrid.addRowDefinition(0.5);
       editorGrid.addRowDefinition(0.5);
       editorGrid.addColumnDefinition(1);
     } else {
-      // Small + landscape: controls on left, preview on right
+      // Small + landscape: left half (controls), right half (copy+preview)
       editorGrid.addRowDefinition(1);
       editorGrid.addColumnDefinition(0.5);
       editorGrid.addColumnDefinition(0.5);
@@ -1533,14 +1535,13 @@ export function createLoadoutScene(
 
   // Preview size based on layout
   let previewSize: number;
-  if (isSmallScreen) {
-    if (isEditorPortrait) {
-      // Portrait: preview fills height of top half, width can be narrower (models are tall)
-      previewSize = screenHeight * 0.48; // Nearly full height of top half
-    } else {
-      // Landscape: preview takes right half, so use half the width
-      previewSize = Math.min(screenWidth * 0.45, screenHeight * 0.8);
-    }
+  if (isMobileLayout) {
+    // Mobile layouts: preview fills the height of the copy+preview section
+    // Portrait: copy+preview is top 50% of screen, so use ~48% of screen height
+    // Landscape: copy+preview is right 50% but full height, so use ~95% of screen height
+    // Models are taller than wide, so it's OK to lose horizontal width
+    const copyPreviewHeight = isEditorPortrait ? screenHeight * 0.5 : screenHeight;
+    previewSize = copyPreviewHeight * 0.95;
   } else {
     // Large screen: preview takes right 60%
     previewSize = Math.min(screenWidth * 0.55, screenHeight * 0.7);
@@ -1548,29 +1549,37 @@ export function createLoadoutScene(
   editorPreviewImage.width = `${previewSize}px`;
   editorPreviewImage.height = `${previewSize}px`;
 
-  // For mobile portrait, make preview area fill height
-  if (isMobilePortrait) {
+  // For mobile layouts, make preview area fill its container
+  if (isMobileLayout) {
     previewArea.width = "100%";
     previewArea.height = "100%";
   }
   previewArea.addControl(editorPreviewImage);
 
-  // Mobile portrait: create top half container with copy (left) and preview (right)
-  let topHalfGrid: Grid | null = null;
+  // Mobile layouts: create copy+preview container (shared between portrait and landscape)
+  let copyPreviewGrid: Grid | null = null;
   let editorCopySymbol: TextBlock | null = null;
   let editorCopyClass: TextBlock | null = null;
   let editorCopyDesc: TextBlock | null = null;
 
-  if (isMobilePortrait) {
-    topHalfGrid = new Grid("topHalfGrid");
-    topHalfGrid.width = "100%";
-    topHalfGrid.height = "100%";
-    topHalfGrid.addColumnDefinition(0.5);
-    topHalfGrid.addColumnDefinition(0.5);
-    topHalfGrid.addRowDefinition(1);
-    editorGrid.addControl(topHalfGrid, 0, 0);
+  if (isMobileLayout) {
+    copyPreviewGrid = new Grid("copyPreviewGrid");
+    copyPreviewGrid.width = "100%";
+    copyPreviewGrid.height = "100%";
+    copyPreviewGrid.addColumnDefinition(0.5);
+    copyPreviewGrid.addColumnDefinition(0.5);
+    copyPreviewGrid.addRowDefinition(1);
 
-    // Left side: Copy section (same as loadout card)
+    // Place in correct position based on orientation
+    if (isMobilePortrait) {
+      // Portrait: copy+preview in top row
+      editorGrid.addControl(copyPreviewGrid, 0, 0);
+    } else {
+      // Landscape: copy+preview in right column
+      editorGrid.addControl(copyPreviewGrid, 0, 1);
+    }
+
+    // Left side of copy+preview: Copy section (same as loadout card)
     const copySection = new Rectangle("editorCopySection");
     copySection.width = "100%";
     copySection.height = "100%";
@@ -1578,7 +1587,7 @@ export function createLoadoutScene(
     copySection.paddingLeft = "12px";
     copySection.paddingRight = "8px";
     copySection.paddingTop = "12px";
-    topHalfGrid.addControl(copySection, 0, 0);
+    copyPreviewGrid.addControl(copySection, 0, 0);
 
     const copyStack = new StackPanel("editorCopyStack");
     copyStack.isVertical = true;
@@ -1590,7 +1599,7 @@ export function createLoadoutScene(
     editorCopySymbol = new TextBlock("editorCopySymbol");
     editorCopySymbol.text = "Δ";
     editorCopySymbol.color = COLORS.accentOrange;
-    editorCopySymbol.fontSize = 28;
+    editorCopySymbol.fontSize = isMobilePortrait ? 28 : 22;
     editorCopySymbol.fontFamily = "'Bebas Neue', sans-serif";
     editorCopySymbol.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     editorCopySymbol.resizeToFit = true;
@@ -1601,7 +1610,7 @@ export function createLoadoutScene(
     editorCopyClass = new TextBlock("editorCopyClass");
     editorCopyClass.text = "Soldier";
     editorCopyClass.color = COLORS.accentOrange;
-    editorCopyClass.fontSize = 20;
+    editorCopyClass.fontSize = isMobilePortrait ? 20 : 16;
     editorCopyClass.fontFamily = "'Bebas Neue', sans-serif";
     editorCopyClass.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     editorCopyClass.resizeToFit = true;
@@ -1612,26 +1621,21 @@ export function createLoadoutScene(
     editorCopyDesc = new TextBlock("editorCopyDesc");
     editorCopyDesc.text = "";
     editorCopyDesc.color = COLORS.textSecondary;
-    editorCopyDesc.fontSize = 11;
+    editorCopyDesc.fontSize = isMobilePortrait ? 11 : 10;
     editorCopyDesc.textWrapping = true;
     editorCopyDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     editorCopyDesc.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
     editorCopyDesc.resizeToFit = true;
     copyStack.addControl(editorCopyDesc);
 
-    // Right side: Preview
-    topHalfGrid.addControl(previewArea, 0, 1);
+    // Right side of copy+preview: Preview
+    copyPreviewGrid.addControl(previewArea, 0, 1);
   }
 
-  // Place preview and options based on layout (non-mobile-portrait cases)
-  if (!isMobilePortrait) {
-    if (isSmallScreen) {
-      // Small + landscape: preview on right (col 1), options on left (col 0)
-      editorGrid.addControl(previewArea, 0, 1);
-    } else {
-      // Large: preview on right (col 1)
-      editorGrid.addControl(previewArea, 0, 1);
-    }
+  // Place preview for non-mobile layouts (large screens only)
+  if (!isMobileLayout) {
+    // Large: preview on right (col 1)
+    editorGrid.addControl(previewArea, 0, 1);
   }
 
   // Options panel (scrollable)
@@ -1825,11 +1829,11 @@ export function createLoadoutScene(
   topSectionGrid.width = "100%";
   // Height for 3 options: each ~(24px label + buttonHeight + 16px padding) = ~84px each
   topSectionGrid.height = `${(24 + smallButtonHeight + 20) * 3}px`;
-  if (isMobilePortrait) {
-    // Mobile portrait: controls take full width (descriptions are in top half copy area)
+  if (isMobileLayout) {
+    // Mobile layouts: controls take full width (descriptions are in copy+preview section)
     topSectionGrid.addColumnDefinition(1);
   } else {
-    // Other layouts: controls left, descriptions right
+    // Large screens: controls left, descriptions right
     topSectionGrid.addColumnDefinition(0.5);
     topSectionGrid.addColumnDefinition(0.5);
   }
@@ -1895,7 +1899,7 @@ export function createLoadoutScene(
   let boostDesc: TextBlock | null = null;
   let weaponDesc: TextBlock | null = null;
 
-  if (!isMobilePortrait) {
+  if (!isMobileLayout) {
     const descStack = new StackPanel("descStack");
     descStack.isVertical = true;
     descStack.width = "100%";
