@@ -3221,40 +3221,47 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
   // Execute heal (called during execution phase)
   function executeHeal(healer: Unit, target: Unit, onComplete: () => void): void {
-    if (healer !== target) {
-      setUnitFacing(healer, target.gridX, target.gridZ);
-    }
+    // Dramatic camera - behind healer looking at target
+    transitionToDramaticCamera(healer.gridX, healer.gridZ, target.gridX, target.gridZ).then(() => {
+      if (healer !== target) {
+        setUnitFacing(healer, target.gridX, target.gridZ);
+      }
 
-    if (healer.modelMeshes) {
-      const weaponMeshes = healer.modelMeshes.filter(m =>
-        m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
-      );
-      weaponMeshes.forEach(m => m.setEnabled(false));
+      const healedAmount = Math.min(healer.healAmount, target.maxHp - target.hp);
+      target.hp += healedAmount;
+      console.log(`${healer.team} ${healer.unitClass} heals ${target.team} ${target.unitClass} for ${healedAmount} HP! (${target.hp}/${target.maxHp} HP)`);
 
-      playAnimation(healer, "Interact", false, () => {
-        const isMelee = healer.customization?.combatStyle === "melee";
-        healer.modelMeshes?.forEach(m => {
-          if (m.name.toLowerCase().includes("sword")) m.setEnabled(isMelee);
-          else if (m.name.toLowerCase().includes("pistol")) m.setEnabled(!isMelee);
+      playSfx(sfx.heal);
+      updateHpBar(target);
+
+      // Update status bar if current unit's HP changed
+      if (target === currentUnit) {
+        updateCurrentUnitStatusBar();
+      }
+
+      if (healer.modelMeshes) {
+        const weaponMeshes = healer.modelMeshes.filter(m =>
+          m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
+        );
+        weaponMeshes.forEach(m => m.setEnabled(false));
+
+        playAnimation(healer, "Interact", false, () => {
+          const isMelee = healer.customization?.combatStyle === "melee";
+          healer.modelMeshes?.forEach(m => {
+            if (m.name.toLowerCase().includes("sword")) m.setEnabled(isMelee);
+            else if (m.name.toLowerCase().includes("pistol")) m.setEnabled(!isMelee);
+          });
+          playIdleAnimation(healer);
+          setTimeout(() => {
+            transitionFromDramaticCamera().then(() => onComplete());
+          }, DRAMATIC_CAMERA_HOLD_MS);
         });
-        playIdleAnimation(healer);
-        onComplete();
-      });
-    } else {
-      onComplete();
-    }
-
-    const healedAmount = Math.min(healer.healAmount, target.maxHp - target.hp);
-    target.hp += healedAmount;
-    console.log(`${healer.team} ${healer.unitClass} heals ${target.team} ${target.unitClass} for ${healedAmount} HP! (${target.hp}/${target.maxHp} HP)`);
-
-    playSfx(sfx.heal);
-    updateHpBar(target);
-
-    // Update status bar if current unit's HP changed
-    if (target === currentUnit) {
-      updateCurrentUnitStatusBar();
-    }
+      } else {
+        setTimeout(() => {
+          transitionFromDramaticCamera().then(() => onComplete());
+        }, DRAMATIC_CAMERA_HOLD_MS);
+      }
+    });
   }
 
   // Execute conceal ability (called during execution phase)
@@ -3266,99 +3273,113 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       return;
     }
 
-    unit.isConcealed = true;
-    applyConcealVisual(unit);
-    console.log(`${unit.team} ${unit.unitClass} activates Conceal!`);
+    // Dramatic camera for self-targeting ability
+    transitionToDramaticCamera(unit.gridX, unit.gridZ, unit.gridX, unit.gridZ).then(() => {
+      unit.isConcealed = true;
+      applyConcealVisual(unit);
+      console.log(`${unit.team} ${unit.unitClass} activates Conceal!`);
 
-    // Play interact animation
-    if (unit.modelMeshes) {
-      const weaponMeshes = unit.modelMeshes.filter(m =>
-        m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
-      );
-      weaponMeshes.forEach(m => m.setEnabled(false));
+      // Play interact animation
+      if (unit.modelMeshes) {
+        const weaponMeshes = unit.modelMeshes.filter(m =>
+          m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
+        );
+        weaponMeshes.forEach(m => m.setEnabled(false));
 
-      playAnimation(unit, "Interact", false, () => {
-        const isMelee = unit.customization?.combatStyle === "melee";
-        unit.modelMeshes?.forEach(m => {
-          if (m.name.toLowerCase().includes("sword")) {
-            m.setEnabled(isMelee);
-          } else if (m.name.toLowerCase().includes("pistol")) {
-            m.setEnabled(!isMelee);
-          }
+        playAnimation(unit, "Interact", false, () => {
+          const isMelee = unit.customization?.combatStyle === "melee";
+          unit.modelMeshes?.forEach(m => {
+            if (m.name.toLowerCase().includes("sword")) {
+              m.setEnabled(isMelee);
+            } else if (m.name.toLowerCase().includes("pistol")) {
+              m.setEnabled(!isMelee);
+            }
+          });
+          playIdleAnimation(unit);
+          setTimeout(() => {
+            transitionFromDramaticCamera().then(() => onComplete());
+          }, DRAMATIC_CAMERA_HOLD_MS);
         });
-        playIdleAnimation(unit);
-        onComplete();
-      });
-    } else {
-      onComplete();
-    }
+      } else {
+        setTimeout(() => {
+          transitionFromDramaticCamera().then(() => onComplete());
+        }, DRAMATIC_CAMERA_HOLD_MS);
+      }
+    });
   }
 
   // Execute cover ability (called during execution phase)
   // fromX/fromZ allow specifying a different position (e.g., if there's a pending move after cover)
   function executeCover(unit: Unit, onComplete: () => void, fromX?: number, fromZ?: number): void {
-    unit.isCovering = !unit.isCovering;
+    // Dramatic camera for self-targeting ability
+    transitionToDramaticCamera(unit.gridX, unit.gridZ, unit.gridX, unit.gridZ).then(() => {
+      unit.isCovering = !unit.isCovering;
 
-    // Clear existing cover for this unit only
-    clearCoverTilesForUnit(unit);
-    clearCoverVisualizationForUnit(unit);
-    clearCoverPreview();  // Clear any pending preview
+      // Clear existing cover for this unit only
+      clearCoverTilesForUnit(unit);
+      clearCoverVisualizationForUnit(unit);
+      clearCoverPreview();  // Clear any pending preview
 
-    // Use provided position or current position
-    const coverX = fromX ?? unit.gridX;
-    const coverZ = fromZ ?? unit.gridZ;
+      // Use provided position or current position
+      const coverX = fromX ?? unit.gridX;
+      const coverZ = fromZ ?? unit.gridZ;
 
-    if (unit.isCovering) {
-      // Get covered tiles based on weapon type
-      const isMelee = unit.customization?.combatStyle === "melee";
-      let coveredTiles: { x: number; z: number }[];
+      if (unit.isCovering) {
+        // Get covered tiles based on weapon type
+        const isMelee = unit.customization?.combatStyle === "melee";
+        let coveredTiles: { x: number; z: number }[];
 
-      if (isMelee) {
-        // Sword: Cover all 8 adjacent tiles with LOS check for diagonals
-        coveredTiles = getAdjacentTiles(coverX, coverZ).filter(tile => {
-          const isDiagonal = tile.x !== coverX && tile.z !== coverZ;
-          return !isDiagonal || hasLineOfSight(coverX, coverZ, tile.x, tile.z, unit);
+        if (isMelee) {
+          // Sword: Cover all 8 adjacent tiles with LOS check for diagonals
+          coveredTiles = getAdjacentTiles(coverX, coverZ).filter(tile => {
+            const isDiagonal = tile.x !== coverX && tile.z !== coverZ;
+            return !isDiagonal || hasLineOfSight(coverX, coverZ, tile.x, tile.z, unit);
+          });
+        } else {
+          // Gun: Cover all tiles in LOS that they could shoot (not adjacent)
+          coveredTiles = getTilesInLOS(coverX, coverZ, true, unit);
+        }
+
+        // Add to cover map and create visualization
+        setCoverTiles(unit, coveredTiles);
+        for (const { x, z } of coveredTiles) {
+          createCoverBorder(unit, x, z, unit.teamColor);
+        }
+        updateHazardStripes();  // Check for dual-covered tiles
+
+        console.log(`${unit.team} ${unit.unitClass} activates Cover! (${coveredTiles.length} tiles)`);
+      } else {
+        updateHazardStripes();  // Update after deactivation
+        console.log(`${unit.team} ${unit.unitClass} deactivates Cover.`);
+      }
+
+      // Play interact animation
+      if (unit.modelMeshes) {
+        const weaponMeshes = unit.modelMeshes.filter(m =>
+          m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
+        );
+        weaponMeshes.forEach(m => m.setEnabled(false));
+
+        playAnimation(unit, "Interact", false, () => {
+          const isMelee = unit.customization?.combatStyle === "melee";
+          unit.modelMeshes?.forEach(m => {
+            if (m.name.toLowerCase().includes("sword")) {
+              m.setEnabled(isMelee);
+            } else if (m.name.toLowerCase().includes("pistol")) {
+              m.setEnabled(!isMelee);
+            }
+          });
+          playIdleAnimation(unit);
+          setTimeout(() => {
+            transitionFromDramaticCamera().then(() => onComplete());
+          }, DRAMATIC_CAMERA_HOLD_MS);
         });
       } else {
-        // Gun: Cover all tiles in LOS that they could shoot (not adjacent)
-        coveredTiles = getTilesInLOS(coverX, coverZ, true, unit);
+        setTimeout(() => {
+          transitionFromDramaticCamera().then(() => onComplete());
+        }, DRAMATIC_CAMERA_HOLD_MS);
       }
-
-      // Add to cover map and create visualization
-      setCoverTiles(unit, coveredTiles);
-      for (const { x, z } of coveredTiles) {
-        createCoverBorder(unit, x, z, unit.teamColor);
-      }
-      updateHazardStripes();  // Check for dual-covered tiles
-
-      console.log(`${unit.team} ${unit.unitClass} activates Cover! (${coveredTiles.length} tiles)`);
-    } else {
-      updateHazardStripes();  // Update after deactivation
-      console.log(`${unit.team} ${unit.unitClass} deactivates Cover.`);
-    }
-
-    // Play interact animation
-    if (unit.modelMeshes) {
-      const weaponMeshes = unit.modelMeshes.filter(m =>
-        m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
-      );
-      weaponMeshes.forEach(m => m.setEnabled(false));
-
-      playAnimation(unit, "Interact", false, () => {
-        const isMelee = unit.customization?.combatStyle === "melee";
-        unit.modelMeshes?.forEach(m => {
-          if (m.name.toLowerCase().includes("sword")) {
-            m.setEnabled(isMelee);
-          } else if (m.name.toLowerCase().includes("pistol")) {
-            m.setEnabled(!isMelee);
-          }
-        });
-        playIdleAnimation(unit);
-        onComplete();
-      });
-    } else {
-      onComplete();
-    }
+    });
   }
 
   // ============================================
@@ -3606,9 +3627,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   // looking at the target for a more cinematic feel
 
   interface SavedCameraState {
-    alpha: number;
-    beta: number;
-    radius: number;
+    position: Vector3;
     target: Vector3;
     lowerRadiusLimit: number;
     upperRadiusLimit: number;
@@ -3617,6 +3636,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   let savedCameraState: SavedCameraState | null = null;
   let isDramaticCamera = false;
   let dramaticCameraAnimationId: number | null = null;
+  // Track current dramatic camera target to avoid duplicate transitions
+  let currentDramaticTargetKey: string | null = null;
 
   /**
    * Animates camera to a position behind the attacker, looking at the target.
@@ -3630,19 +3651,39 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     targetZ: number
   ): Promise<void> {
     return new Promise((resolve) => {
-      // Save current camera state including limits
-      savedCameraState = {
-        alpha: camera.alpha,
-        beta: camera.beta,
-        radius: camera.radius,
-        target: camera.target.clone(),
-        lowerRadiusLimit: camera.lowerRadiusLimit ?? 1,
-        upperRadiusLimit: camera.upperRadiusLimit ?? 100,
-      };
+      // Check if we're already focused on this target (avoid duplicate transitions)
+      const targetKey = `${attackerX},${attackerZ}->${targetX},${targetZ}`;
+      if (currentDramaticTargetKey === targetKey) {
+        // Cancel any ongoing out-transition and stay put
+        if (dramaticCameraAnimationId !== null) {
+          cancelAnimationFrame(dramaticCameraAnimationId);
+          dramaticCameraAnimationId = null;
+        }
+        isDramaticCamera = true; // Ensure we stay in dramatic mode
+        resolve();
+        return;
+      }
+
+      // Cancel any ongoing animation before starting new one
+      if (dramaticCameraAnimationId !== null) {
+        cancelAnimationFrame(dramaticCameraAnimationId);
+        dramaticCameraAnimationId = null;
+      }
+
+      // Only save camera state if not already in dramatic mode
+      if (!isDramaticCamera) {
+        savedCameraState = {
+          position: camera.position.clone(),
+          target: camera.target.clone(),
+          lowerRadiusLimit: camera.lowerRadiusLimit ?? 1,
+          upperRadiusLimit: camera.upperRadiusLimit ?? 100,
+        };
+      }
 
       // Disable player controls during dramatic sequence
       camera.detachControl();
       isDramaticCamera = true;
+      currentDramaticTargetKey = targetKey;
 
       // Temporarily remove camera limits for dramatic zoom
       camera.lowerRadiusLimit = 1;
@@ -3661,28 +3702,41 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       const targetWorldX = targetX * TILE_SIZE - gridOffset;
       const targetWorldZ = targetZ * TILE_SIZE - gridOffset;
 
-      // Camera looks at the defender at chest height
+      // Check if self-targeting (e.g., medic self-heal)
+      const isSelfTarget = attackerX === targetX && attackerZ === targetZ;
+
+      // Camera looks at the target at chest height
       const finalTarget = new Vector3(targetWorldX, DRAMATIC_CAMERA_TARGET_HEIGHT, targetWorldZ);
 
-      // Direction from attacker to defender (attack direction)
-      const atkDirX = targetWorldX - attackerWorldX;
-      const atkDirZ = targetWorldZ - attackerWorldZ;
-      const dist = Math.sqrt(atkDirX * atkDirX + atkDirZ * atkDirZ);
-      const normX = dist > 0 ? atkDirX / dist : 0;
-      const normZ = dist > 0 ? atkDirZ / dist : 1;
+      // Calculate camera position
+      const camHeight = DRAMATIC_CAMERA_RADIUS * Math.cos(DRAMATIC_CAMERA_BETA);
+      const camHorizDist = DRAMATIC_CAMERA_RADIUS * Math.sin(DRAMATIC_CAMERA_BETA);
 
-      // Calculate final camera WORLD position (behind attacker, elevated)
-      // Camera is BEHIND the attacker (opposite of attack direction)
-      // Using the tuned values: radius 6 from target, beta 1.33 (76 degrees from vertical)
-      const camHeight = DRAMATIC_CAMERA_RADIUS * Math.cos(DRAMATIC_CAMERA_BETA); // ~1.4 above target
-      const camHorizDist = DRAMATIC_CAMERA_RADIUS * Math.sin(DRAMATIC_CAMERA_BETA); // ~5.8 horizontal
+      let finalCamPos: Vector3;
 
-      // Position camera behind attacker: start at attacker, go backwards (negative direction)
-      const finalCamPos = new Vector3(
-        attackerWorldX - normX * camHorizDist,
-        finalTarget.y + camHeight,
-        attackerWorldZ - normZ * camHorizDist
-      );
+      if (isSelfTarget) {
+        // Self-targeting: position camera at a fixed angle around the unit
+        // Use the current camera's horizontal angle as a starting point
+        const angle = camera.alpha;
+        finalCamPos = new Vector3(
+          targetWorldX + Math.sin(angle) * camHorizDist,
+          finalTarget.y + camHeight,
+          targetWorldZ + Math.cos(angle) * camHorizDist
+        );
+      } else {
+        // Normal attack: position camera behind attacker
+        const atkDirX = targetWorldX - attackerWorldX;
+        const atkDirZ = targetWorldZ - attackerWorldZ;
+        const dist = Math.sqrt(atkDirX * atkDirX + atkDirZ * atkDirZ);
+        const normX = dist > 0 ? atkDirX / dist : 0;
+        const normZ = dist > 0 ? atkDirZ / dist : 1;
+
+        finalCamPos = new Vector3(
+          attackerWorldX - normX * camHorizDist,
+          finalTarget.y + camHeight,
+          attackerWorldZ - normZ * camHorizDist
+        );
+      }
 
       // Get starting camera world position
       const startCamPos = camera.position.clone();
@@ -3730,19 +3784,16 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     return new Promise((resolve) => {
       if (!savedCameraState) {
         isDramaticCamera = false;
+        currentDramaticTargetKey = null;
         resolve();
         return;
       }
 
       const startTime = performance.now();
-      const startAlpha = camera.alpha;
-      const startBeta = camera.beta;
-      const startRadius = camera.radius;
+      const startCamPos = camera.position.clone();
       const startTarget = camera.target.clone();
 
-      const endAlpha = savedCameraState.alpha;
-      const endBeta = savedCameraState.beta;
-      const endRadius = savedCameraState.radius;
+      const endCamPos = savedCameraState.position;
       const endTarget = savedCameraState.target;
 
       function animateFrame(): void {
@@ -3753,16 +3804,24 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
           ? 4 * t * t * t
           : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
-        camera.alpha = startAlpha + (endAlpha - startAlpha) * eased;
-        camera.beta = startBeta + (endBeta - startBeta) * eased;
-        camera.radius = startRadius + (endRadius - startRadius) * eased;
-        camera.target = Vector3.Lerp(startTarget, endTarget, eased);
+        // Clear inertia every frame
+        camera.inertialAlphaOffset = 0;
+        camera.inertialBetaOffset = 0;
+        camera.inertialRadiusOffset = 0;
+
+        // Interpolate world positions
+        const newCamPos = Vector3.Lerp(startCamPos, endCamPos, eased);
+        const newTarget = Vector3.Lerp(startTarget, endTarget, eased);
+
+        camera.target = newTarget;
+        camera.setPosition(newCamPos);
 
         if (t < 1) {
           dramaticCameraAnimationId = requestAnimationFrame(animateFrame);
         } else {
           dramaticCameraAnimationId = null;
           isDramaticCamera = false;
+          currentDramaticTargetKey = null;
 
           // Restore camera limits (grab values before nulling)
           const savedLowerLimit = savedCameraState?.lowerRadiusLimit ?? BATTLE_CAMERA_LOWER_RADIUS_LIMIT;
