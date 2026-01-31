@@ -11,7 +11,24 @@ export type { SceneName } from "./types";
 const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 const engine = new Engine(canvas, true);
 
+// Handle WebGL context loss (happens when tab is idle for a while)
+canvas.addEventListener("webglcontextlost", (event) => {
+  event.preventDefault();
+  console.warn("WebGL context lost. Waiting for restoration...");
+});
+
+canvas.addEventListener("webglcontextrestored", () => {
+  console.log("WebGL context restored. Reinitializing scene...");
+  // Force re-creation of current scene to rebuild shaders
+  if (currentScene) {
+    const sceneName = currentSceneName;
+    currentScene.dispose();
+    navigateTo(sceneName);
+  }
+});
+
 let currentScene: Scene;
+let currentSceneName: SceneName = "start";
 let currentLoadout: Loadout | null = null;
 let currentGameMode: GameMode = "local-pvp";
 let currentHumanTeam: "player1" | "player2" = "player1";
@@ -36,6 +53,7 @@ export function navigateTo(sceneName: SceneName): void {
   if (currentScene) {
     currentScene.dispose();
   }
+  currentSceneName = sceneName;
 
   switch (sceneName) {
     case "start":

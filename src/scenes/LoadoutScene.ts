@@ -156,6 +156,10 @@ export function createLoadoutScene(
 ): Scene {
   const scene = new Scene(engine);
 
+  // Disable environment texture to prevent rgbdDecode shader errors
+  // PBR materials will use direct lighting only (no IBL reflections)
+  scene.environmentTexture = null;
+
   // Track if scene has been disposed (prevents async operations on disposed scene)
   let sceneDisposed = false;
 
