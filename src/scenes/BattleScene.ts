@@ -3043,6 +3043,36 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     clearCoverPreview();
     shadowPosition = null;
 
+    // Helper to get the camera target key for an action
+    // Returns null for actions that don't use dramatic camera (like move)
+    function getCameraTargetKey(action: typeof actions[0]): string | null {
+      if (action.type === "attack" && action.targetUnit) {
+        return `${unit.gridX},${unit.gridZ}->${action.targetUnit.gridX},${action.targetUnit.gridZ}`;
+      } else if (action.type === "ability") {
+        if (action.abilityName === "heal" && action.targetUnit) {
+          return `${unit.gridX},${unit.gridZ}->${action.targetUnit.gridX},${action.targetUnit.gridZ}`;
+        } else if (action.abilityName === "conceal" || action.abilityName === "cover") {
+          return `${unit.gridX},${unit.gridZ}->${unit.gridX},${unit.gridZ}`;
+        }
+      }
+      return null;
+    }
+
+    // Check if we should transition camera out after completing action at index
+    function shouldTransitionOutAfter(index: number): boolean {
+      const currentKey = getCameraTargetKey(actions[index]);
+      if (!currentKey) return false; // No camera for this action
+
+      // Look ahead to next action
+      if (index + 1 < actions.length) {
+        const nextKey = getCameraTargetKey(actions[index + 1]);
+        if (nextKey === currentKey) {
+          return false; // Next action has same target, don't transition out
+        }
+      }
+      return true; // Different target or no more actions, transition out
+    }
+
     // Helper to check cover reaction after an action completes
     // If cover is triggered, ends turn immediately; otherwise continues to next action
     // Concealed units do not trigger cover
@@ -3085,20 +3115,23 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
           processNextAction(index + 1);
           return;
         }
-        // Execute attack
+        // Execute attack - skip camera out if next action has same target
+        const skipCameraOut = !shouldTransitionOutAfter(index);
         executeAttack(unit, action.targetUnit, () => {
           afterActionWithCoverCheck(index + 1);
-        });
+        }, skipCameraOut);
       } else if (action.type === "ability" && action.abilityName === "heal" && action.targetUnit) {
-        // Execute heal
+        // Execute heal - skip camera out if next action has same target
+        const skipCameraOut = !shouldTransitionOutAfter(index);
         executeHeal(unit, action.targetUnit, () => {
           afterActionWithCoverCheck(index + 1);
-        });
+        }, skipCameraOut);
       } else if (action.type === "ability" && action.abilityName === "conceal") {
-        // Execute conceal
+        // Execute conceal - skip camera out if next action has same target
+        const skipCameraOut = !shouldTransitionOutAfter(index);
         executeConceal(unit, () => {
           afterActionWithCoverCheck(index + 1);
-        });
+        }, skipCameraOut);
       } else if (action.type === "ability" && action.abilityName === "cover") {
         // Execute cover - find final position from any remaining move actions
         let finalX = unit.gridX;
@@ -3110,9 +3143,11 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
             finalZ = futureAction.targetZ;
           }
         }
+        // Skip camera out if next action has same target
+        const skipCameraOut = !shouldTransitionOutAfter(index);
         executeCover(unit, () => {
           afterActionWithCoverCheck(index + 1);
-        }, finalX, finalZ);
+        }, finalX, finalZ, skipCameraOut);
       } else {
         // Unknown action, skip
         processNextAction(index + 1);
@@ -3125,7 +3160,19 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
   // Execute attack (called during execution phase)
   // Now includes dramatic camera transition for cinematic effect
-  function executeAttack(attacker: Unit, defender: Unit, onComplete: () => void): void {
+  // skipCameraOut: if true, don't transition camera out (next action has same target)
+  function executeAttack(attacker: Unit, defender: Unit, onComplete: () => void, skipCameraOut = false): void {
+    // Helper to finish the action (with or without camera transition)
+    const finishAction = () => {
+      if (skipCameraOut) {
+        setTimeout(() => onComplete(), DRAMATIC_CAMERA_HOLD_MS);
+      } else {
+        setTimeout(() => {
+          transitionFromDramaticCamera().then(() => onComplete());
+        }, DRAMATIC_CAMERA_HOLD_MS);
+      }
+    };
+
     // Start dramatic camera transition, then execute attack
     transitionToDramaticCamera(
       attacker.gridX,
@@ -3156,9 +3203,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
           playAnimation(defender, "HitRecieve", false, () => {
             playIdleAnimation(defender);
-            setTimeout(() => {
-              transitionFromDramaticCamera().then(() => onComplete());
-            }, DRAMATIC_CAMERA_HOLD_MS);
+            finishAction();
           });
           return;
         }
@@ -3196,9 +3241,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
             if (defender.designationLabel) defender.designationLabel.dispose();
             if (defender.modelRoot) defender.modelRoot.dispose();
             if (defender.animationGroups) defender.animationGroups.forEach(ag => ag.dispose());
-            setTimeout(() => {
-              transitionFromDramaticCamera().then(() => onComplete());
-            }, DRAMATIC_CAMERA_HOLD_MS);
+            finishAction();
           });
 
           const index = units.indexOf(defender);
@@ -3210,9 +3253,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         } else {
           playAnimation(defender, "HitRecieve", false, () => {
             playIdleAnimation(defender);
-            setTimeout(() => {
-              transitionFromDramaticCamera().then(() => onComplete());
-            }, DRAMATIC_CAMERA_HOLD_MS);
+            finishAction();
           });
         }
       }, ATTACK_IMPACT_DELAY_MS); // Delay for attack animation to reach impact
@@ -3220,7 +3261,18 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   }
 
   // Execute heal (called during execution phase)
-  function executeHeal(healer: Unit, target: Unit, onComplete: () => void): void {
+  // skipCameraOut: if true, don't transition camera out (next action has same target)
+  function executeHeal(healer: Unit, target: Unit, onComplete: () => void, skipCameraOut = false): void {
+    // Helper to finish the action
+    const finishAction = () => {
+      if (skipCameraOut) {
+        setTimeout(() => onComplete(), DRAMATIC_CAMERA_HOLD_MS);
+      } else {
+        setTimeout(() => {
+          transitionFromDramaticCamera().then(() => onComplete());
+        }, DRAMATIC_CAMERA_HOLD_MS);
+      }
+    };
     // Dramatic camera - behind healer looking at target
     transitionToDramaticCamera(healer.gridX, healer.gridZ, target.gridX, target.gridZ).then(() => {
       if (healer !== target) {
@@ -3252,20 +3304,27 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
             else if (m.name.toLowerCase().includes("pistol")) m.setEnabled(!isMelee);
           });
           playIdleAnimation(healer);
-          setTimeout(() => {
-            transitionFromDramaticCamera().then(() => onComplete());
-          }, DRAMATIC_CAMERA_HOLD_MS);
+          finishAction();
         });
       } else {
-        setTimeout(() => {
-          transitionFromDramaticCamera().then(() => onComplete());
-        }, DRAMATIC_CAMERA_HOLD_MS);
+        finishAction();
       }
     });
   }
 
   // Execute conceal ability (called during execution phase)
-  function executeConceal(unit: Unit, onComplete: () => void): void {
+  // skipCameraOut: if true, don't transition camera out (next action has same target)
+  function executeConceal(unit: Unit, onComplete: () => void, skipCameraOut = false): void {
+    // Helper to finish the action
+    const finishAction = () => {
+      if (skipCameraOut) {
+        setTimeout(() => onComplete(), DRAMATIC_CAMERA_HOLD_MS);
+      } else {
+        setTimeout(() => {
+          transitionFromDramaticCamera().then(() => onComplete());
+        }, DRAMATIC_CAMERA_HOLD_MS);
+      }
+    };
     // Always turn conceal ON (never toggle off)
     if (unit.isConcealed) {
       console.log(`${unit.team} ${unit.unitClass} is already Concealed.`);
@@ -3296,21 +3355,29 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
             }
           });
           playIdleAnimation(unit);
-          setTimeout(() => {
-            transitionFromDramaticCamera().then(() => onComplete());
-          }, DRAMATIC_CAMERA_HOLD_MS);
+          finishAction();
         });
       } else {
-        setTimeout(() => {
-          transitionFromDramaticCamera().then(() => onComplete());
-        }, DRAMATIC_CAMERA_HOLD_MS);
+        finishAction();
       }
     });
   }
 
   // Execute cover ability (called during execution phase)
   // fromX/fromZ allow specifying a different position (e.g., if there's a pending move after cover)
-  function executeCover(unit: Unit, onComplete: () => void, fromX?: number, fromZ?: number): void {
+  // skipCameraOut: if true, don't transition camera out (next action has same target)
+  function executeCover(unit: Unit, onComplete: () => void, fromX?: number, fromZ?: number, skipCameraOut = false): void {
+    // Helper to finish the action
+    const finishAction = () => {
+      if (skipCameraOut) {
+        setTimeout(() => onComplete(), DRAMATIC_CAMERA_HOLD_MS);
+      } else {
+        setTimeout(() => {
+          transitionFromDramaticCamera().then(() => onComplete());
+        }, DRAMATIC_CAMERA_HOLD_MS);
+      }
+    };
+
     // Dramatic camera for self-targeting ability
     transitionToDramaticCamera(unit.gridX, unit.gridZ, unit.gridX, unit.gridZ).then(() => {
       unit.isCovering = !unit.isCovering;
@@ -3370,14 +3437,10 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
             }
           });
           playIdleAnimation(unit);
-          setTimeout(() => {
-            transitionFromDramaticCamera().then(() => onComplete());
-          }, DRAMATIC_CAMERA_HOLD_MS);
+          finishAction();
         });
       } else {
-        setTimeout(() => {
-          transitionFromDramaticCamera().then(() => onComplete());
-        }, DRAMATIC_CAMERA_HOLD_MS);
+        finishAction();
       }
     });
   }
