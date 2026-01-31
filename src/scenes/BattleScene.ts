@@ -89,16 +89,26 @@ import {
   BATTLE_MODEL_Y_POSITION,
   HP_BAR_ANCHOR_HEIGHT,
   HEAD_VARIANT_COUNT,
+  DRAMATIC_CAMERA_RADIUS,
+  DRAMATIC_CAMERA_BETA,
+  DRAMATIC_CAMERA_TARGET_HEIGHT,
+  DRAMATIC_CAMERA_TRANSITION_IN_MS,
+  DRAMATIC_CAMERA_TRANSITION_OUT_MS,
+  DRAMATIC_CAMERA_HOLD_MS,
+  BREAKPOINT_LANDSCAPE_PHONE_HEIGHT,
+  BREAKPOINT_TABLET_MIN,
+  BREAKPOINT_DESKTOP_MIN,
+  BREAKPOINT_SMALL_MOBILE,
 } from "../config";
 
 // Import audio config
 import { MUSIC, SFX, AUDIO_VOLUMES, LOOP_BUFFER_TIME } from "../config";
 
 // Import utility functions
-import { hexToColor3, createMusicPlayer, playSfx, rgbToColor3 } from "../utils";
+import { hexToColor3, createMusicPlayer, playSfx, rgbToColor3, type MusicPlayer } from "../utils";
 
 // Module-level music player (persists across orientation reloads)
-let battleMusic: HTMLAudioElement | null = null;
+let battleMusic: MusicPlayer | null = null;
 
 // Import command pattern for action queue
 import {
@@ -111,7 +121,6 @@ import {
   createHealCommand,
   createConcealCommand,
   createCoverCommand,
-  processCommandQueue,
   ControllerManager,
   createLocalPvPControllers,
   createPvEControllers,
@@ -137,6 +146,14 @@ const BOOST_INFO = [
 
 export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loadout: Loadout | null): Scene {
   const scene = new Scene(engine);
+
+  // Disable environment texture to prevent rgbdDecode shader errors
+  // PBR materials will use direct lighting only (no IBL reflections)
+  scene.environmentTexture = null;
+
+  // Track if scene has been disposed (prevents async operations on disposed scene)
+  let sceneDisposed = false;
+
   // Use centralized scene background color
   const bg = SCENE_BACKGROUNDS.battle;
   scene.clearColor.set(bg.r, bg.g, bg.b, bg.a);
@@ -146,9 +163,9 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   // ============================================
   const screenWidth = engine.getRenderWidth();
   const screenHeight = engine.getRenderHeight();
-  const isLandscapePhone = screenHeight < 500 && screenWidth < 1024;
-  const isMobile = screenWidth < 600 && !isLandscapePhone;
-  const isTablet = (screenWidth >= 600 && screenWidth < 1024) || isLandscapePhone;
+  const isLandscapePhone = screenHeight < BREAKPOINT_LANDSCAPE_PHONE_HEIGHT && screenWidth < BREAKPOINT_DESKTOP_MIN;
+  const isMobile = screenWidth < BREAKPOINT_TABLET_MIN && !isLandscapePhone;
+  const isTablet = (screenWidth >= BREAKPOINT_TABLET_MIN && screenWidth < BREAKPOINT_DESKTOP_MIN) || isLandscapePhone;
   const isTouch = isMobile || isTablet;
 
   // Note: We don't reload BattleScene on orientation change since that would
@@ -165,10 +182,10 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   }
 
   scene.onDisposeObservable.add(() => {
+    sceneDisposed = true;
     // Stop music when leaving battle scene
     if (battleMusic) {
-      battleMusic.pause();
-      battleMusic.src = "";
+      battleMusic.dispose();
       battleMusic = null;
     }
   });
@@ -180,9 +197,22 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     hitMedium: new Audio(SFX.hitMedium),
     hitHeavy: new Audio(SFX.hitHeavy),
     heal: new Audio(SFX.heal),
+    swordSwing: new Audio(SFX.swordSwing),
+    gunShot: new Audio(SFX.gunShot),
+    concealUp: new Audio(SFX.concealUp),
+    concealDown: new Audio(SFX.concealDown),
+    death: new Audio(SFX.death),
+    coverUp: new Audio(SFX.coverUp),
+    coverDown: new Audio(SFX.coverDown),
+    speedUp: new Audio(SFX.speedUp),
   };
   // Set volume for all sound effects
   Object.values(sfx).forEach(sound => sound.volume = AUDIO_VOLUMES.sfx);
+  // Boost quieter effects
+  sfx.concealUp.volume = Math.min(1, AUDIO_VOLUMES.sfx * 1.5);
+  sfx.concealDown.volume = Math.min(1, AUDIO_VOLUMES.sfx * 1.5);
+  // Reduce louder effects
+  sfx.gunShot.volume = AUDIO_VOLUMES.sfx * 0.7;
   // Note: playSfx is now imported from utils
 
   // Camera - using centralized constants for isometric tactical view
@@ -547,8 +577,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     };
   }
 
-  // Export state extraction for external use (AI, simulations)
-  void extractBattleState; // Prevent unused warning
+  // Note: extractBattleState is defined for AI/simulation use but not currently called.
+  // When implementing AI decision-making, call extractBattleState() to get pure game state.
 
   // GUI - ensure it captures pointer events before the scene
   const gui = AdvancedDynamicTexture.CreateFullscreenUI("UI");
@@ -685,20 +715,17 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     };
   }
 
-  /** Get current controller manager (for external configuration) */
-  function getControllerManager(): ControllerManager {
+  // Note: Controller manager functions available for runtime mode switching.
+  // Currently unused but kept for future network play or settings menu implementation.
+  function _getControllerManager(): ControllerManager {
     return controllerManager;
   }
-
-  /** Set controller manager (to switch between PvP/PvE modes) */
-  function setControllerManager(manager: ControllerManager): void {
+  function _setControllerManager(manager: ControllerManager): void {
     controllerManager.dispose();
     controllerManager = manager;
   }
-
-  // Export controller functions for external use
-  void getControllerManager;
-  void setControllerManager;
+  void _getControllerManager;
+  void _setControllerManager;
 
   // Callback for when a unit's turn starts (set later by command menu)
   let onTurnStartCallback: ((unit: Unit) => void) | null = null;
@@ -1064,9 +1091,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   const blockedMaterial = new StandardMaterial("blockedMat", scene);
   blockedMaterial.diffuseColor = rgbToColor3(HIGHLIGHT_BLOCKED);
 
-  // Export references for future use (prevents unused warnings)
-  const _helpers = { getTilesInLOS, getValidAttackTiles, createShadowPreview, clearShadowPreview, shadowPosition: () => shadowPosition, highlightAttackTargets, getAttackableEnemiesWithLOS, showAttackPreview, clearAttackPreview, highlightHealTargets, toggleConceal, toggleCover, clearCoverVisualization };
-  void _helpers;
 
   // ============================================
   // ANIMATED MOVEMENT
@@ -1339,6 +1363,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   async function spawnAllUnits(): Promise<void> {
     // Spawn player1 units
     for (let i = 0; i < player1Selections.length; i++) {
+      if (sceneDisposed) return; // Stop if scene disposed during spawn
       const pos = player1Positions[i];
       const selection = player1Selections[i];
       const unit = await createUnit(
@@ -1355,11 +1380,13 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         selection.customization,
         selection.boost
       );
+      if (sceneDisposed) return; // Stop if scene disposed during load
       units.push(unit);
     }
 
     // Spawn player2 units
     for (let i = 0; i < player2Selections.length; i++) {
+      if (sceneDisposed) return; // Stop if scene disposed during spawn
       const pos = player2Positions[i];
       const selection = player2Selections[i];
       const unit = await createUnit(
@@ -1376,6 +1403,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         selection.customization,
         selection.boost
       );
+      if (sceneDisposed) return; // Stop if scene disposed during load
       units.push(unit);
     }
 
@@ -1395,8 +1423,10 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       }
     }
 
-    // Start the game after all units are loaded
-    startGame();
+    // Start the game after all units are loaded (if scene not disposed)
+    if (!sceneDisposed) {
+      startGame();
+    }
   }
 
   // Start spawning (game will start when done)
@@ -1633,6 +1663,15 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     const unusedActions = turnState?.actionsRemaining ?? 0;
     unit.speedBonus = unusedActions * SPEED_BONUS_PER_UNUSED_ACTION;
 
+    // Show speed boost message if skipping actions
+    if (unusedActions >= 2) {
+      showBattleMessage("Super Speed Boost!", unit.teamColor);
+      playSfx(sfx.speedUp);
+    } else if (unusedActions === 1) {
+      showBattleMessage("Speed Boost!", unit.teamColor);
+      playSfx(sfx.speedUp);
+    }
+
     // Clear turn state
     turnState = null;
     currentActionMode = "none";
@@ -1706,18 +1745,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
   function hasActionsRemaining(): boolean {
     return turnState !== null && turnState.actionsRemaining > 0;
-  }
-
-  function consumeAction(): void {
-    if (turnState) {
-      turnState.actionsRemaining--;
-      updateCommandMenu();
-
-      // Auto-end turn when no actions remaining
-      if (turnState.actionsRemaining <= 0) {
-        setTimeout(() => endTurn(), 100);  // Small delay for visual feedback
-      }
-    }
   }
 
   function getValidMoveTiles(unit: Unit, fromX?: number, fromZ?: number): { x: number; z: number }[] {
@@ -1837,7 +1864,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   }
 
   // Legacy function - kept for potential AI/simulation use (simpler than LOS version)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function getAttackableEnemiesSimple(unit: Unit, fromX?: number, fromZ?: number): Unit[] {
     if (!hasActionsRemaining()) return []; // No actions remaining
     // Use shadow position if pending move, otherwise use provided or current position
@@ -1849,7 +1875,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       return distance <= unit.attackRange;
     });
   }
-  // Export for future AI/simulation use
   void getAttackableEnemiesSimple;
 
   function getHealableAllies(unit: Unit, fromX?: number, fromZ?: number): Unit[] {
@@ -1965,11 +1990,11 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
     const attackTiles = getValidAttackTiles(unit, x, z);
 
-    return units.filter(player2 => {
-      if (player2.team === unit.team) return false;
-      if (player2.hp <= 0) return false;
+    return units.filter(enemy => {
+      if (enemy.team === unit.team) return false;
+      if (enemy.hp <= 0) return false;
 
-      const tileInfo = attackTiles.find(t => t.x === player2.gridX && t.z === player2.gridZ);
+      const tileInfo = attackTiles.find(t => t.x === enemy.gridX && t.z === enemy.gridZ);
       return tileInfo?.hasLOS ?? false;
     });
   }
@@ -2152,41 +2177,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         }
       });
     }
-  }
-
-  // Toggle Conceal for Operator (damage type)
-  function toggleConceal(unit: Unit): void {
-    // Always turn conceal ON (never toggle off)
-    if (unit.isConcealed) {
-      console.log(`${unit.team} ${unit.unitClass} is already Concealed.`);
-      return;
-    }
-
-    unit.isConcealed = true;
-    applyConcealVisual(unit);
-    console.log(`${unit.team} ${unit.unitClass} activates Conceal!`);
-
-    // Play interact animation
-    if (unit.modelMeshes) {
-      const weaponMeshes = unit.modelMeshes.filter(m =>
-        m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
-      );
-      weaponMeshes.forEach(m => m.setEnabled(false));
-
-      playAnimation(unit, "Interact", false, () => {
-        const isMelee = unit.customization?.combatStyle === "melee";
-        unit.modelMeshes?.forEach(m => {
-          if (m.name.toLowerCase().includes("sword")) {
-            m.setEnabled(isMelee);
-          } else if (m.name.toLowerCase().includes("pistol")) {
-            m.setEnabled(!isMelee);
-          }
-        });
-        playIdleAnimation(unit);
-      });
-    }
-
-    consumeAction();
   }
 
   // Cover tiles tracking for visual display - per unit
@@ -2495,6 +2485,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     }
 
     console.log(`${coveringUnit.team} ${coveringUnit.unitClass} triggers Cover reaction on ${targetUnit.team} ${targetUnit.unitClass}!`);
+    showBattleMessage("Cover Counter!", coveringUnit.teamColor);
 
     // Execute the cover reaction attack
     executeAttack(coveringUnit, targetUnit, () => {
@@ -2504,66 +2495,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     });
 
     return true;
-  }
-
-  // Toggle Cover for Soldier (tank type)
-  function toggleCover(unit: Unit): void {
-    unit.isCovering = !unit.isCovering;
-
-    // Clear existing cover for this unit only
-    clearCoverTilesForUnit(unit);
-    clearCoverVisualizationForUnit(unit);
-
-    if (unit.isCovering) {
-      // Get covered tiles based on weapon type
-      const isMelee = unit.customization?.combatStyle === "melee";
-      let coveredTiles: { x: number; z: number }[];
-
-      if (isMelee) {
-        // Sword: Cover all 8 adjacent tiles with LOS check for diagonals
-        coveredTiles = getAdjacentTiles(unit.gridX, unit.gridZ).filter(tile => {
-          const isDiagonal = tile.x !== unit.gridX && tile.z !== unit.gridZ;
-          return !isDiagonal || hasLineOfSight(unit.gridX, unit.gridZ, tile.x, tile.z, unit);
-        });
-      } else {
-        // Gun: Cover all tiles in LOS that they could shoot (not adjacent)
-        coveredTiles = getTilesInLOS(unit.gridX, unit.gridZ, true, unit);
-      }
-
-      // Add to cover map and create visualization
-      setCoverTiles(unit, coveredTiles);
-      for (const { x, z } of coveredTiles) {
-        createCoverBorder(unit, x, z, unit.teamColor);
-      }
-      updateHazardStripes();  // Check for dual-covered tiles
-
-      console.log(`${unit.team} ${unit.unitClass} activates Cover! (${coveredTiles.length} tiles)`);
-    } else {
-      updateHazardStripes();  // Update after deactivation
-      console.log(`${unit.team} ${unit.unitClass} deactivates Cover.`);
-    }
-
-    // Play interact animation
-    if (unit.modelMeshes) {
-      const weaponMeshes = unit.modelMeshes.filter(m =>
-        m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
-      );
-      weaponMeshes.forEach(m => m.setEnabled(false));
-
-      playAnimation(unit, "Interact", false, () => {
-        const isMelee = unit.customization?.combatStyle === "melee";
-        unit.modelMeshes?.forEach(m => {
-          if (m.name.toLowerCase().includes("sword")) {
-            m.setEnabled(isMelee);
-          } else if (m.name.toLowerCase().includes("pistol")) {
-            m.setEnabled(!isMelee);
-          }
-        });
-        playIdleAnimation(unit);
-      });
-    }
-
-    consumeAction();
   }
 
   function createCoverBorder(unit: Unit, tileX: number, tileZ: number, color: Color3): void {
@@ -2625,16 +2556,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       vBox.isPickable = false;
       unitMeshes.push(vBox);
     }
-  }
-
-  // Clear ALL cover visualizations (for all units)
-  function clearCoverVisualization(): void {
-    for (const [_unit, meshes] of coverMeshesByUnit.entries()) {
-      for (const mesh of meshes) {
-        mesh.dispose();
-      }
-    }
-    coverMeshesByUnit.clear();
   }
 
   function isValidMove(x: number, z: number): boolean {
@@ -2716,7 +2637,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     gui.addControl(overlay);
 
     const container = new StackPanel();
-    container.width = screenWidth < 500 ? "95%" : "600px";
+    container.width = screenWidth < BREAKPOINT_SMALL_MOBILE ? "95%" : "600px";
     container.height = "200px";
     overlay.addControl(container);
 
@@ -2729,7 +2650,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     const text = new TextBlock();
     text.text = `${winnerName} Wins!`;
     text.color = colorHex;
-    text.fontSize = screenWidth < 500 ? 48 : 72;
+    text.fontSize = screenWidth < BREAKPOINT_SMALL_MOBILE ? 48 : 72;
     text.width = "100%";
     text.height = "100px";
     text.fontWeight = "bold";
@@ -2767,10 +2688,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     }
   }
 
-  function endTurn(): void {
-    endCurrentUnitTurn();
-  }
-
   // updateTurnIndicator removed - info now shown in command menu popup
 
   function canSelectUnit(unit: Unit): boolean {
@@ -2783,31 +2700,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
   // Attack preview tiles when hovering during move mode
   let attackPreviewTiles: Mesh[] = [];
-
-  function showAttackPreview(unit: Unit, fromX: number, fromZ: number): void {
-    clearAttackPreview();
-
-    // Get valid attack tiles from shadow position
-    const attackTiles = getValidAttackTiles(unit, fromX, fromZ);
-
-    // Show preview on player2 tiles
-    for (const player2 of units) {
-      if (player2.team === unit.team) continue;
-      if (player2.hp <= 0) continue;
-
-      const tileInfo = attackTiles.find(t => t.x === player2.gridX && t.z === player2.gridZ);
-      if (tileInfo) {
-        const tile = tiles[player2.gridX][player2.gridZ];
-        // Use a lighter version of attack/blocked colors for preview
-        if (tileInfo.hasLOS) {
-          tile.material = attackableMaterial;
-        } else {
-          tile.material = blockedMaterial;
-        }
-        attackPreviewTiles.push(tile);
-      }
-    }
-  }
 
   function clearAttackPreview(): void {
     for (const tile of attackPreviewTiles) {
@@ -3010,17 +2902,44 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     const unit = turnState.unit;
     const actions = [...turnState.pendingActions];
 
-    // Note: commandQueue contains the same actions as pendingActions
-    // To use the command pattern instead, replace the code below with:
-    // processCommandQueue(commandQueue, commandExecutor);
-    // return;
-    void processCommandQueue; // Mark as available for future use
+    // Note: This uses inline action processing for visual animations.
+    // For headless simulation, use: processCommandQueue(commandQueue, commandExecutor);
 
     clearShadowPreview();
     clearAttackPreview();
     clearIntentIndicators();
     clearCoverPreview();
     shadowPosition = null;
+
+    // Helper to get the camera target key for an action
+    // Returns null for actions that don't use dramatic camera (like move)
+    function getCameraTargetKey(action: typeof actions[0]): string | null {
+      if (action.type === "attack" && action.targetUnit) {
+        return `${unit.gridX},${unit.gridZ}->${action.targetUnit.gridX},${action.targetUnit.gridZ}`;
+      } else if (action.type === "ability") {
+        if (action.abilityName === "heal" && action.targetUnit) {
+          return `${unit.gridX},${unit.gridZ}->${action.targetUnit.gridX},${action.targetUnit.gridZ}`;
+        } else if (action.abilityName === "conceal" || action.abilityName === "cover") {
+          return `${unit.gridX},${unit.gridZ}->${unit.gridX},${unit.gridZ}`;
+        }
+      }
+      return null;
+    }
+
+    // Check if we should transition camera out after completing action at index
+    function shouldTransitionOutAfter(index: number): boolean {
+      const currentKey = getCameraTargetKey(actions[index]);
+      if (!currentKey) return false; // No camera for this action
+
+      // Look ahead to next action
+      if (index + 1 < actions.length) {
+        const nextKey = getCameraTargetKey(actions[index + 1]);
+        if (nextKey === currentKey) {
+          return false; // Next action has same target, don't transition out
+        }
+      }
+      return true; // Different target or no more actions, transition out
+    }
 
     // Helper to check cover reaction after an action completes
     // If cover is triggered, ends turn immediately; otherwise continues to next action
@@ -3061,23 +2980,31 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       } else if (action.type === "attack" && action.targetUnit) {
         // Check if target is still alive (may have been killed by previous action)
         if (action.targetUnit.hp <= 0) {
-          processNextAction(index + 1);
+          // If we're in dramatic camera mode (previous action skipped camera out), transition out now
+          if (isDramaticCamera) {
+            transitionFromDramaticCamera().then(() => processNextAction(index + 1));
+          } else {
+            processNextAction(index + 1);
+          }
           return;
         }
-        // Execute attack
+        // Execute attack - skip camera out if next action has same target
+        const skipCameraOut = !shouldTransitionOutAfter(index);
         executeAttack(unit, action.targetUnit, () => {
           afterActionWithCoverCheck(index + 1);
-        });
+        }, skipCameraOut);
       } else if (action.type === "ability" && action.abilityName === "heal" && action.targetUnit) {
-        // Execute heal
+        // Execute heal - skip camera out if next action has same target
+        const skipCameraOut = !shouldTransitionOutAfter(index);
         executeHeal(unit, action.targetUnit, () => {
           afterActionWithCoverCheck(index + 1);
-        });
+        }, skipCameraOut);
       } else if (action.type === "ability" && action.abilityName === "conceal") {
-        // Execute conceal
+        // Execute conceal - skip camera out if next action has same target
+        const skipCameraOut = !shouldTransitionOutAfter(index);
         executeConceal(unit, () => {
           afterActionWithCoverCheck(index + 1);
-        });
+        }, skipCameraOut);
       } else if (action.type === "ability" && action.abilityName === "cover") {
         // Execute cover - find final position from any remaining move actions
         let finalX = unit.gridX;
@@ -3089,9 +3016,11 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
             finalZ = futureAction.targetZ;
           }
         }
+        // Skip camera out if next action has same target
+        const skipCameraOut = !shouldTransitionOutAfter(index);
         executeCover(unit, () => {
           afterActionWithCoverCheck(index + 1);
-        }, finalX, finalZ);
+        }, finalX, finalZ, skipCameraOut);
       } else {
         // Unknown action, skip
         processNextAction(index + 1);
@@ -3103,126 +3032,182 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   }
 
   // Execute attack (called during execution phase)
-  function executeAttack(attacker: Unit, defender: Unit, onComplete: () => void): void {
-    setUnitFacing(attacker, defender.gridX, defender.gridZ);
-
-    // Play attack animation based on combat style
-    const isMelee = attacker.customization?.combatStyle === "melee";
-    const attackAnim = isMelee ? "Sword_Slash" : "Gun_Shoot";
-
-    // Play attacker animation, then apply damage after a delay for impact
-    playAnimation(attacker, attackAnim, false, () => {
-      playIdleAnimation(attacker);
-    });
-
-    // Delay the impact to sync with attack animation (300ms for impact moment)
-    setTimeout(() => {
-      // Check if defender is concealed
-      if (defender.isConcealed) {
-        defender.isConcealed = false;
-        removeConcealVisual(defender);
-        console.log(`${defender.team} ${defender.unitClass}'s Conceal was broken! Damage negated!`);
-        // Light hit sound for conceal break
-        playSfx(sfx.hitLight);
-
-        playAnimation(defender, "HitRecieve", false, () => {
-          playIdleAnimation(defender);
-          onComplete();
-        });
-        return;
-      }
-
-      // Apply damage (melee does more damage - using centralized multiplier)
-      const isMeleeAttack = attacker.customization?.combatStyle === "melee";
-      const damage = isMeleeAttack ? attacker.attack * MELEE_DAMAGE_MULTIPLIER : attacker.attack;
-      defender.hp = Math.max(0, defender.hp - damage);
-      console.log(`${attacker.team} ${attacker.unitClass} attacks ${defender.team} ${defender.unitClass} for ${damage} damage! (${defender.hp}/${defender.maxHp} HP)`);
-
-      // Hit sounds based on weapon type
-      if (isMeleeAttack) playSfx(sfx.hitHeavy);
-      else playSfx(sfx.hitMedium);
-
-      updateHpBar(defender);
-
-      // Update status bar if current unit's HP changed
-      if (defender === currentUnit) {
-        updateCurrentUnitStatusBar();
-      }
-
-      // Cancel cover when hit (even if surviving)
-      if (defender.isCovering) {
-        console.log(`${defender.team} ${defender.unitClass}'s Cover is broken by being hit!`);
-        endCover(defender);
-      }
-
-      if (defender.hp <= 0) {
-        console.log(`${defender.team} ${defender.unitClass} was defeated!`);
-
-        playAnimation(defender, "Death", false, () => {
-          defender.mesh.dispose();
-          if (defender.hpBar) defender.hpBar.dispose();
-          if (defender.hpBarBg) defender.hpBarBg.dispose();
-          if (defender.designationLabel) defender.designationLabel.dispose();
-          if (defender.modelRoot) defender.modelRoot.dispose();
-          if (defender.animationGroups) defender.animationGroups.forEach(ag => ag.dispose());
-          onComplete();
-        });
-
-        const index = units.indexOf(defender);
-        if (index > -1) units.splice(index, 1);
-        const queueIndex = firstRoundQueue.indexOf(defender);
-        if (queueIndex > -1) firstRoundQueue.splice(queueIndex, 1);
-
-        checkWinCondition();
+  // Now includes dramatic camera transition for cinematic effect
+  // skipCameraOut: if true, don't transition camera out (next action has same target)
+  function executeAttack(attacker: Unit, defender: Unit, onComplete: () => void, skipCameraOut = false): void {
+    // Helper to finish the action (with or without camera transition)
+    const finishAction = () => {
+      if (skipCameraOut) {
+        setTimeout(() => onComplete(), DRAMATIC_CAMERA_HOLD_MS);
       } else {
-        playAnimation(defender, "HitRecieve", false, () => {
-          playIdleAnimation(defender);
-          onComplete();
-        });
+        setTimeout(() => {
+          transitionFromDramaticCamera().then(() => onComplete());
+        }, DRAMATIC_CAMERA_HOLD_MS);
       }
-    }, ATTACK_IMPACT_DELAY_MS); // Delay for attack animation to reach impact
+    };
+
+    // Start dramatic camera transition, then execute attack
+    transitionToDramaticCamera(
+      attacker.gridX,
+      attacker.gridZ,
+      defender.gridX,
+      defender.gridZ
+    ).then(() => {
+      setUnitFacing(attacker, defender.gridX, defender.gridZ);
+
+      // Play attack animation based on combat style
+      const isMelee = attacker.customization?.combatStyle === "melee";
+      const attackAnim = isMelee ? "Sword_Slash" : "Gun_Shoot";
+
+      // Play swing/shot sound immediately with animation
+      playSfx(isMelee ? sfx.swordSwing : sfx.gunShot);
+
+      // Play attacker animation, then apply damage after a delay for impact
+      playAnimation(attacker, attackAnim, false, () => {
+        playIdleAnimation(attacker);
+      });
+
+      // Delay the impact to sync with attack animation (300ms for impact moment)
+      setTimeout(() => {
+        // Check if defender is concealed
+        if (defender.isConcealed) {
+          defender.isConcealed = false;
+          removeConcealVisual(defender);
+          console.log(`${defender.team} ${defender.unitClass}'s Conceal was broken! Damage negated!`);
+          showBattleMessage("Conceal Broken!", defender.teamColor);
+          playSfx(sfx.concealDown);
+          // Light hit sound for conceal break
+          playSfx(sfx.hitLight);
+
+          playAnimation(defender, "HitRecieve", false, () => {
+            playIdleAnimation(defender);
+            finishAction();
+          });
+          return;
+        }
+
+        // Apply damage (melee does more damage - using centralized multiplier)
+        const isMeleeAttack = attacker.customization?.combatStyle === "melee";
+        const damage = isMeleeAttack ? attacker.attack * MELEE_DAMAGE_MULTIPLIER : attacker.attack;
+        defender.hp = Math.max(0, defender.hp - damage);
+        console.log(`${attacker.team} ${attacker.unitClass} attacks ${defender.team} ${defender.unitClass} for ${damage} damage! (${defender.hp}/${defender.maxHp} HP)`);
+
+        // Hit sounds based on weapon type
+        if (isMeleeAttack) playSfx(sfx.hitHeavy);
+        else playSfx(sfx.hitMedium);
+
+        updateHpBar(defender);
+
+        // Update status bar if current unit's HP changed
+        if (defender === currentUnit) {
+          updateCurrentUnitStatusBar();
+        }
+
+        // Cancel cover when hit (even if surviving)
+        if (defender.isCovering) {
+          console.log(`${defender.team} ${defender.unitClass}'s Cover is broken by being hit!`);
+          showBattleMessage("Cover Broken!", defender.teamColor);
+          playSfx(sfx.coverDown);
+          endCover(defender);
+        }
+
+        if (defender.hp <= 0) {
+          console.log(`${defender.team} ${defender.unitClass} was defeated!`);
+          showBattleMessage("Unit Down!", defender.teamColor);
+          playSfx(sfx.death);
+
+          playAnimation(defender, "Death", false, () => {
+            defender.mesh.dispose();
+            if (defender.hpBar) defender.hpBar.dispose();
+            if (defender.hpBarBg) defender.hpBarBg.dispose();
+            if (defender.designationLabel) defender.designationLabel.dispose();
+            if (defender.modelRoot) defender.modelRoot.dispose();
+            if (defender.animationGroups) defender.animationGroups.forEach(ag => ag.dispose());
+            finishAction();
+          });
+
+          const index = units.indexOf(defender);
+          if (index > -1) units.splice(index, 1);
+          const queueIndex = firstRoundQueue.indexOf(defender);
+          if (queueIndex > -1) firstRoundQueue.splice(queueIndex, 1);
+
+          checkWinCondition();
+        } else {
+          playAnimation(defender, "HitRecieve", false, () => {
+            playIdleAnimation(defender);
+            finishAction();
+          });
+        }
+      }, ATTACK_IMPACT_DELAY_MS); // Delay for attack animation to reach impact
+    });
   }
 
   // Execute heal (called during execution phase)
-  function executeHeal(healer: Unit, target: Unit, onComplete: () => void): void {
-    if (healer !== target) {
-      setUnitFacing(healer, target.gridX, target.gridZ);
-    }
+  // skipCameraOut: if true, don't transition camera out (next action has same target)
+  function executeHeal(healer: Unit, target: Unit, onComplete: () => void, skipCameraOut = false): void {
+    // Helper to finish the action
+    const finishAction = () => {
+      if (skipCameraOut) {
+        setTimeout(() => onComplete(), DRAMATIC_CAMERA_HOLD_MS);
+      } else {
+        setTimeout(() => {
+          transitionFromDramaticCamera().then(() => onComplete());
+        }, DRAMATIC_CAMERA_HOLD_MS);
+      }
+    };
+    // Dramatic camera - behind healer looking at target
+    transitionToDramaticCamera(healer.gridX, healer.gridZ, target.gridX, target.gridZ).then(() => {
+      if (healer !== target) {
+        setUnitFacing(healer, target.gridX, target.gridZ);
+      }
 
-    if (healer.modelMeshes) {
-      const weaponMeshes = healer.modelMeshes.filter(m =>
-        m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
-      );
-      weaponMeshes.forEach(m => m.setEnabled(false));
+      const healedAmount = Math.min(healer.healAmount, target.maxHp - target.hp);
+      target.hp += healedAmount;
+      console.log(`${healer.team} ${healer.unitClass} heals ${target.team} ${target.unitClass} for ${healedAmount} HP! (${target.hp}/${target.maxHp} HP)`);
+      showBattleMessage("Heal!", healer.teamColor);
 
-      playAnimation(healer, "Interact", false, () => {
-        const isMelee = healer.customization?.combatStyle === "melee";
-        healer.modelMeshes?.forEach(m => {
-          if (m.name.toLowerCase().includes("sword")) m.setEnabled(isMelee);
-          else if (m.name.toLowerCase().includes("pistol")) m.setEnabled(!isMelee);
+      playSfx(sfx.heal);
+      updateHpBar(target);
+
+      // Update status bar if current unit's HP changed
+      if (target === currentUnit) {
+        updateCurrentUnitStatusBar();
+      }
+
+      if (healer.modelMeshes) {
+        const weaponMeshes = healer.modelMeshes.filter(m =>
+          m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
+        );
+        weaponMeshes.forEach(m => m.setEnabled(false));
+
+        playAnimation(healer, "Interact", false, () => {
+          const isMelee = healer.customization?.combatStyle === "melee";
+          healer.modelMeshes?.forEach(m => {
+            if (m.name.toLowerCase().includes("sword")) m.setEnabled(isMelee);
+            else if (m.name.toLowerCase().includes("pistol")) m.setEnabled(!isMelee);
+          });
+          playIdleAnimation(healer);
+          finishAction();
         });
-        playIdleAnimation(healer);
-        onComplete();
-      });
-    } else {
-      onComplete();
-    }
-
-    const healedAmount = Math.min(healer.healAmount, target.maxHp - target.hp);
-    target.hp += healedAmount;
-    console.log(`${healer.team} ${healer.unitClass} heals ${target.team} ${target.unitClass} for ${healedAmount} HP! (${target.hp}/${target.maxHp} HP)`);
-
-    playSfx(sfx.heal);
-    updateHpBar(target);
-
-    // Update status bar if current unit's HP changed
-    if (target === currentUnit) {
-      updateCurrentUnitStatusBar();
-    }
+      } else {
+        finishAction();
+      }
+    });
   }
 
   // Execute conceal ability (called during execution phase)
-  function executeConceal(unit: Unit, onComplete: () => void): void {
+  // skipCameraOut: if true, don't transition camera out (next action has same target)
+  function executeConceal(unit: Unit, onComplete: () => void, skipCameraOut = false): void {
+    // Helper to finish the action
+    const finishAction = () => {
+      if (skipCameraOut) {
+        setTimeout(() => onComplete(), DRAMATIC_CAMERA_HOLD_MS);
+      } else {
+        setTimeout(() => {
+          transitionFromDramaticCamera().then(() => onComplete());
+        }, DRAMATIC_CAMERA_HOLD_MS);
+      }
+    };
     // Always turn conceal ON (never toggle off)
     if (unit.isConcealed) {
       console.log(`${unit.team} ${unit.unitClass} is already Concealed.`);
@@ -3230,99 +3215,121 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       return;
     }
 
-    unit.isConcealed = true;
-    applyConcealVisual(unit);
-    console.log(`${unit.team} ${unit.unitClass} activates Conceal!`);
+    // Dramatic camera for self-targeting ability
+    transitionToDramaticCamera(unit.gridX, unit.gridZ, unit.gridX, unit.gridZ).then(() => {
+      unit.isConcealed = true;
+      applyConcealVisual(unit);
+      console.log(`${unit.team} ${unit.unitClass} activates Conceal!`);
+      showBattleMessage("Conceal!", unit.teamColor);
+      playSfx(sfx.concealUp);
 
-    // Play interact animation
-    if (unit.modelMeshes) {
-      const weaponMeshes = unit.modelMeshes.filter(m =>
-        m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
-      );
-      weaponMeshes.forEach(m => m.setEnabled(false));
+      // Play interact animation
+      if (unit.modelMeshes) {
+        const weaponMeshes = unit.modelMeshes.filter(m =>
+          m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
+        );
+        weaponMeshes.forEach(m => m.setEnabled(false));
 
-      playAnimation(unit, "Interact", false, () => {
-        const isMelee = unit.customization?.combatStyle === "melee";
-        unit.modelMeshes?.forEach(m => {
-          if (m.name.toLowerCase().includes("sword")) {
-            m.setEnabled(isMelee);
-          } else if (m.name.toLowerCase().includes("pistol")) {
-            m.setEnabled(!isMelee);
-          }
+        playAnimation(unit, "Interact", false, () => {
+          const isMelee = unit.customization?.combatStyle === "melee";
+          unit.modelMeshes?.forEach(m => {
+            if (m.name.toLowerCase().includes("sword")) {
+              m.setEnabled(isMelee);
+            } else if (m.name.toLowerCase().includes("pistol")) {
+              m.setEnabled(!isMelee);
+            }
+          });
+          playIdleAnimation(unit);
+          finishAction();
         });
-        playIdleAnimation(unit);
-        onComplete();
-      });
-    } else {
-      onComplete();
-    }
+      } else {
+        finishAction();
+      }
+    });
   }
 
   // Execute cover ability (called during execution phase)
   // fromX/fromZ allow specifying a different position (e.g., if there's a pending move after cover)
-  function executeCover(unit: Unit, onComplete: () => void, fromX?: number, fromZ?: number): void {
-    unit.isCovering = !unit.isCovering;
+  // skipCameraOut: if true, don't transition camera out (next action has same target)
+  function executeCover(unit: Unit, onComplete: () => void, fromX?: number, fromZ?: number, skipCameraOut = false): void {
+    // Helper to finish the action
+    const finishAction = () => {
+      if (skipCameraOut) {
+        setTimeout(() => onComplete(), DRAMATIC_CAMERA_HOLD_MS);
+      } else {
+        setTimeout(() => {
+          transitionFromDramaticCamera().then(() => onComplete());
+        }, DRAMATIC_CAMERA_HOLD_MS);
+      }
+    };
 
-    // Clear existing cover for this unit only
-    clearCoverTilesForUnit(unit);
-    clearCoverVisualizationForUnit(unit);
-    clearCoverPreview();  // Clear any pending preview
+    // Dramatic camera for self-targeting ability
+    transitionToDramaticCamera(unit.gridX, unit.gridZ, unit.gridX, unit.gridZ).then(() => {
+      unit.isCovering = !unit.isCovering;
 
-    // Use provided position or current position
-    const coverX = fromX ?? unit.gridX;
-    const coverZ = fromZ ?? unit.gridZ;
+      // Clear existing cover for this unit only
+      clearCoverTilesForUnit(unit);
+      clearCoverVisualizationForUnit(unit);
+      clearCoverPreview();  // Clear any pending preview
 
-    if (unit.isCovering) {
-      // Get covered tiles based on weapon type
-      const isMelee = unit.customization?.combatStyle === "melee";
-      let coveredTiles: { x: number; z: number }[];
+      // Use provided position or current position
+      const coverX = fromX ?? unit.gridX;
+      const coverZ = fromZ ?? unit.gridZ;
 
-      if (isMelee) {
-        // Sword: Cover all 8 adjacent tiles with LOS check for diagonals
-        coveredTiles = getAdjacentTiles(coverX, coverZ).filter(tile => {
-          const isDiagonal = tile.x !== coverX && tile.z !== coverZ;
-          return !isDiagonal || hasLineOfSight(coverX, coverZ, tile.x, tile.z, unit);
+      if (unit.isCovering) {
+        // Get covered tiles based on weapon type
+        const isMelee = unit.customization?.combatStyle === "melee";
+        let coveredTiles: { x: number; z: number }[];
+
+        if (isMelee) {
+          // Sword: Cover all 8 adjacent tiles with LOS check for diagonals
+          coveredTiles = getAdjacentTiles(coverX, coverZ).filter(tile => {
+            const isDiagonal = tile.x !== coverX && tile.z !== coverZ;
+            return !isDiagonal || hasLineOfSight(coverX, coverZ, tile.x, tile.z, unit);
+          });
+        } else {
+          // Gun: Cover all tiles in LOS that they could shoot (not adjacent)
+          coveredTiles = getTilesInLOS(coverX, coverZ, true, unit);
+        }
+
+        // Add to cover map and create visualization
+        setCoverTiles(unit, coveredTiles);
+        for (const { x, z } of coveredTiles) {
+          createCoverBorder(unit, x, z, unit.teamColor);
+        }
+        updateHazardStripes();  // Check for dual-covered tiles
+
+        console.log(`${unit.team} ${unit.unitClass} activates Cover! (${coveredTiles.length} tiles)`);
+        showBattleMessage("Cover Activated!", unit.teamColor);
+        playSfx(sfx.coverUp);
+      } else {
+        updateHazardStripes();  // Update after deactivation
+        console.log(`${unit.team} ${unit.unitClass} deactivates Cover.`);
+      }
+
+      // Play interact animation
+      if (unit.modelMeshes) {
+        const weaponMeshes = unit.modelMeshes.filter(m =>
+          m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
+        );
+        weaponMeshes.forEach(m => m.setEnabled(false));
+
+        playAnimation(unit, "Interact", false, () => {
+          const isMelee = unit.customization?.combatStyle === "melee";
+          unit.modelMeshes?.forEach(m => {
+            if (m.name.toLowerCase().includes("sword")) {
+              m.setEnabled(isMelee);
+            } else if (m.name.toLowerCase().includes("pistol")) {
+              m.setEnabled(!isMelee);
+            }
+          });
+          playIdleAnimation(unit);
+          finishAction();
         });
       } else {
-        // Gun: Cover all tiles in LOS that they could shoot (not adjacent)
-        coveredTiles = getTilesInLOS(coverX, coverZ, true, unit);
+        finishAction();
       }
-
-      // Add to cover map and create visualization
-      setCoverTiles(unit, coveredTiles);
-      for (const { x, z } of coveredTiles) {
-        createCoverBorder(unit, x, z, unit.teamColor);
-      }
-      updateHazardStripes();  // Check for dual-covered tiles
-
-      console.log(`${unit.team} ${unit.unitClass} activates Cover! (${coveredTiles.length} tiles)`);
-    } else {
-      updateHazardStripes();  // Update after deactivation
-      console.log(`${unit.team} ${unit.unitClass} deactivates Cover.`);
-    }
-
-    // Play interact animation
-    if (unit.modelMeshes) {
-      const weaponMeshes = unit.modelMeshes.filter(m =>
-        m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
-      );
-      weaponMeshes.forEach(m => m.setEnabled(false));
-
-      playAnimation(unit, "Interact", false, () => {
-        const isMelee = unit.customization?.combatStyle === "melee";
-        unit.modelMeshes?.forEach(m => {
-          if (m.name.toLowerCase().includes("sword")) {
-            m.setEnabled(isMelee);
-          } else if (m.name.toLowerCase().includes("pistol")) {
-            m.setEnabled(!isMelee);
-          }
-        });
-        playIdleAnimation(unit);
-        onComplete();
-      });
-    } else {
-      onComplete();
-    }
+    });
   }
 
   // ============================================
@@ -3334,8 +3341,10 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   /**
    * Command executor implementation for the battle scene.
    * Bridges between pure commands and visual execution.
+   * Note: Currently unused - kept for future headless simulation support.
    */
-  const commandExecutor: CommandExecutor = {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _commandExecutor: CommandExecutor = {
     executeMove(command, onComplete) {
       if (!turnState) { onComplete(); return; }
       const unit = turnState.unit;
@@ -3394,9 +3403,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       });
     },
   };
-
-  // Export command executor for external use (AI, network play)
-  void commandExecutor;
+  void _commandExecutor;
 
   // ============================================
   // UNDO SYSTEM
@@ -3457,7 +3464,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   // Click handling - infers action from what was clicked (no popup menu mode)
   scene.onPointerObservable.add((pointerInfo) => {
     if (gameOver) return;
-    if (isAnimatingMovement || isExecutingActions) return;  // Block input during animations
+    if (isAnimatingMovement || isExecutingActions || isDramaticCamera) return;  // Block input during animations
     if (pointerInfo.type !== PointerEventTypes.POINTERPICK) return;
 
     const pickedMesh = pointerInfo.pickInfo?.pickedMesh;
@@ -3562,6 +3569,229 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   let isPanning = false;
   let lastPanX = 0;
   let lastPanY = 0;
+
+  // ============================================
+  // DRAMATIC CAMERA SYSTEM
+  // ============================================
+  // When attacks are executed, camera zooms behind the attacker
+  // looking at the target for a more cinematic feel
+
+  interface SavedCameraState {
+    position: Vector3;
+    target: Vector3;
+    lowerRadiusLimit: number;
+    upperRadiusLimit: number;
+  }
+
+  let savedCameraState: SavedCameraState | null = null;
+  let isDramaticCamera = false;
+  let dramaticCameraAnimationId: number | null = null;
+  // Track current dramatic camera target to avoid duplicate transitions
+  let currentDramaticTargetKey: string | null = null;
+
+  /**
+   * Animates camera to a position behind the attacker, looking at the target.
+   * Creates an over-the-shoulder dramatic view for attacks.
+   * Returns a promise that resolves when the transition is complete.
+   */
+  function transitionToDramaticCamera(
+    attackerX: number,
+    attackerZ: number,
+    targetX: number,
+    targetZ: number
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      // Check if we're already focused on this target (avoid duplicate transitions)
+      const targetKey = `${attackerX},${attackerZ}->${targetX},${targetZ}`;
+      if (currentDramaticTargetKey === targetKey) {
+        // Cancel any ongoing out-transition and stay put
+        if (dramaticCameraAnimationId !== null) {
+          cancelAnimationFrame(dramaticCameraAnimationId);
+          dramaticCameraAnimationId = null;
+        }
+        isDramaticCamera = true; // Ensure we stay in dramatic mode
+        resolve();
+        return;
+      }
+
+      // Cancel any ongoing animation before starting new one
+      if (dramaticCameraAnimationId !== null) {
+        cancelAnimationFrame(dramaticCameraAnimationId);
+        dramaticCameraAnimationId = null;
+      }
+
+      // Only save camera state if not already in dramatic mode
+      if (!isDramaticCamera) {
+        savedCameraState = {
+          position: camera.position.clone(),
+          target: camera.target.clone(),
+          lowerRadiusLimit: camera.lowerRadiusLimit ?? 1,
+          upperRadiusLimit: camera.upperRadiusLimit ?? 100,
+        };
+      }
+
+      // Disable player controls during dramatic sequence
+      camera.detachControl();
+      isDramaticCamera = true;
+      currentDramaticTargetKey = targetKey;
+
+      // Temporarily remove camera limits for dramatic zoom
+      camera.lowerRadiusLimit = 1;
+      camera.upperRadiusLimit = 100;
+
+      // Kill any inertia that might fight our animation
+      camera.inertialAlphaOffset = 0;
+      camera.inertialBetaOffset = 0;
+      camera.inertialRadiusOffset = 0;
+      camera.inertialPanningX = 0;
+      camera.inertialPanningY = 0;
+
+      // Calculate world positions
+      const attackerWorldX = attackerX * TILE_SIZE - gridOffset;
+      const attackerWorldZ = attackerZ * TILE_SIZE - gridOffset;
+      const targetWorldX = targetX * TILE_SIZE - gridOffset;
+      const targetWorldZ = targetZ * TILE_SIZE - gridOffset;
+
+      // Check if self-targeting (e.g., medic self-heal)
+      const isSelfTarget = attackerX === targetX && attackerZ === targetZ;
+
+      // Camera looks at the target at chest height
+      const finalTarget = new Vector3(targetWorldX, DRAMATIC_CAMERA_TARGET_HEIGHT, targetWorldZ);
+
+      // Calculate camera position
+      const camHeight = DRAMATIC_CAMERA_RADIUS * Math.cos(DRAMATIC_CAMERA_BETA);
+      const camHorizDist = DRAMATIC_CAMERA_RADIUS * Math.sin(DRAMATIC_CAMERA_BETA);
+
+      let finalCamPos: Vector3;
+
+      if (isSelfTarget) {
+        // Self-targeting: position camera at a fixed angle around the unit
+        // Use the current camera's horizontal angle as a starting point
+        const angle = camera.alpha;
+        finalCamPos = new Vector3(
+          targetWorldX + Math.sin(angle) * camHorizDist,
+          finalTarget.y + camHeight,
+          targetWorldZ + Math.cos(angle) * camHorizDist
+        );
+      } else {
+        // Normal attack: position camera behind attacker
+        const atkDirX = targetWorldX - attackerWorldX;
+        const atkDirZ = targetWorldZ - attackerWorldZ;
+        const dist = Math.sqrt(atkDirX * atkDirX + atkDirZ * atkDirZ);
+        const normX = dist > 0 ? atkDirX / dist : 0;
+        const normZ = dist > 0 ? atkDirZ / dist : 1;
+
+        finalCamPos = new Vector3(
+          attackerWorldX - normX * camHorizDist,
+          finalTarget.y + camHeight,
+          attackerWorldZ - normZ * camHorizDist
+        );
+      }
+
+      // Get starting camera world position
+      const startCamPos = camera.position.clone();
+      const startTarget = camera.target.clone();
+
+      // Animate the transition using world positions
+      const startTime = performance.now();
+
+      function animateFrame(): void {
+        const elapsed = performance.now() - startTime;
+        const t = Math.min(elapsed / DRAMATIC_CAMERA_TRANSITION_IN_MS, 1);
+        // Ease out cubic for smooth deceleration
+        const eased = 1 - Math.pow(1 - t, 3);
+
+        // Clear inertia every frame to prevent fighting
+        camera.inertialAlphaOffset = 0;
+        camera.inertialBetaOffset = 0;
+        camera.inertialRadiusOffset = 0;
+
+        // Interpolate world positions
+        const newCamPos = Vector3.Lerp(startCamPos, finalCamPos, eased);
+        const newTarget = Vector3.Lerp(startTarget, finalTarget, eased);
+
+        // Set target first, then use setPosition to update camera
+        camera.target = newTarget;
+        camera.setPosition(newCamPos);
+
+        if (t < 1) {
+          dramaticCameraAnimationId = requestAnimationFrame(animateFrame);
+        } else {
+          dramaticCameraAnimationId = null;
+          resolve();
+        }
+      }
+
+      dramaticCameraAnimationId = requestAnimationFrame(animateFrame);
+    });
+  }
+
+  /**
+   * Transitions camera back to its saved state before the dramatic sequence.
+   * Returns a promise that resolves when the transition is complete.
+   */
+  function transitionFromDramaticCamera(): Promise<void> {
+    return new Promise((resolve) => {
+      if (!savedCameraState) {
+        isDramaticCamera = false;
+        currentDramaticTargetKey = null;
+        resolve();
+        return;
+      }
+
+      const startTime = performance.now();
+      const startCamPos = camera.position.clone();
+      const startTarget = camera.target.clone();
+
+      const endCamPos = savedCameraState.position;
+      const endTarget = savedCameraState.target;
+
+      function animateFrame(): void {
+        const elapsed = performance.now() - startTime;
+        const t = Math.min(elapsed / DRAMATIC_CAMERA_TRANSITION_OUT_MS, 1);
+        // Ease in-out cubic for smooth transition
+        const eased = t < 0.5
+          ? 4 * t * t * t
+          : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+        // Clear inertia every frame
+        camera.inertialAlphaOffset = 0;
+        camera.inertialBetaOffset = 0;
+        camera.inertialRadiusOffset = 0;
+
+        // Interpolate world positions
+        const newCamPos = Vector3.Lerp(startCamPos, endCamPos, eased);
+        const newTarget = Vector3.Lerp(startTarget, endTarget, eased);
+
+        camera.target = newTarget;
+        camera.setPosition(newCamPos);
+
+        if (t < 1) {
+          dramaticCameraAnimationId = requestAnimationFrame(animateFrame);
+        } else {
+          dramaticCameraAnimationId = null;
+          isDramaticCamera = false;
+          currentDramaticTargetKey = null;
+
+          // Restore camera limits (grab values before nulling)
+          const savedLowerLimit = savedCameraState?.lowerRadiusLimit ?? BATTLE_CAMERA_LOWER_RADIUS_LIMIT;
+          const savedUpperLimit = savedCameraState?.upperRadiusLimit ?? BATTLE_CAMERA_UPPER_RADIUS_LIMIT;
+          camera.lowerRadiusLimit = savedLowerLimit;
+          camera.upperRadiusLimit = savedUpperLimit;
+          savedCameraState = null;
+
+          // Re-enable camera controls based on current mode
+          if (cameraMode === "rotate") {
+            camera.attachControl(true);
+          }
+
+          resolve();
+        }
+      }
+
+      dramaticCameraAnimationId = requestAnimationFrame(animateFrame);
+    });
+  }
 
   // Compass button - top right, toggles pan mode
   const compassBtn = Button.CreateSimpleButton("compassBtn", "");
@@ -3684,11 +3914,16 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
   canvas.addEventListener("touchend", handleTouchEnd);
 
-  // Clean up touch listeners on scene dispose
+  // Clean up touch listeners and camera animation on scene dispose
   scene.onDisposeObservable.add(() => {
     canvas.removeEventListener("touchstart", handleTouchStart);
     canvas.removeEventListener("touchmove", handleTouchMove);
     canvas.removeEventListener("touchend", handleTouchEnd);
+    // Cancel any ongoing dramatic camera animation
+    if (dramaticCameraAnimationId !== null) {
+      cancelAnimationFrame(dramaticCameraAnimationId);
+      dramaticCameraAnimationId = null;
+    }
   });
 
   // Show camera mode toggle on all devices (iPad Pro users need it too)
@@ -4597,6 +4832,86 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
   gui.addControl(queuedActionsPanel);
 
+  // ============================================
+  // BATTLE MESSAGE UI (above queued actions)
+  // ============================================
+
+  const battleMessageText = new TextBlock("battleMessage");
+  battleMessageText.fontSize = 28;
+  battleMessageText.fontWeight = "bold";
+  battleMessageText.color = "#ffffff";
+  battleMessageText.outlineColor = "#000000";
+  battleMessageText.outlineWidth = 3;
+  battleMessageText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  battleMessageText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+  battleMessageText.top = "-80px"; // Above the queued actions panel
+  battleMessageText.isVisible = false;
+  battleMessageText.zIndex = 100; // Above health bars and symbols
+  gui.addControl(battleMessageText);
+
+  let battleMessageTimeout: ReturnType<typeof setTimeout> | null = null;
+  let battleMessageAnimationId: number | null = null;
+
+  /**
+   * Show a battle message with team color and swoop animation
+   * @param text The message to display
+   * @param teamColor The Color3 of the relevant team
+   */
+  function showBattleMessage(text: string, teamColor: Color3): void {
+    // Cancel any existing message
+    if (battleMessageTimeout) {
+      clearTimeout(battleMessageTimeout);
+      battleMessageTimeout = null;
+    }
+    if (battleMessageAnimationId !== null) {
+      cancelAnimationFrame(battleMessageAnimationId);
+      battleMessageAnimationId = null;
+    }
+
+    // Set text and color
+    battleMessageText.text = text;
+    battleMessageText.color = teamColor.toHexString();
+    battleMessageText.isVisible = true;
+
+    // Animation state
+    const startTime = performance.now();
+    const swoopInDuration = 200; // ms to swoop in from left
+    const holdDuration = 1600; // ms to hold in center
+    const swoopOutDuration = 200; // ms to swoop out to right
+    const totalDuration = swoopInDuration + holdDuration + swoopOutDuration;
+
+    function animate(): void {
+      const elapsed = performance.now() - startTime;
+
+      if (elapsed < swoopInDuration) {
+        // Swoop in from left
+        const t = elapsed / swoopInDuration;
+        const easeOut = 1 - Math.pow(1 - t, 3); // Cubic ease out
+        const offsetX = -300 * (1 - easeOut);
+        battleMessageText.left = `${offsetX}px`;
+        battleMessageAnimationId = requestAnimationFrame(animate);
+      } else if (elapsed < swoopInDuration + holdDuration) {
+        // Hold in center
+        battleMessageText.left = "0px";
+        battleMessageAnimationId = requestAnimationFrame(animate);
+      } else if (elapsed < totalDuration) {
+        // Swoop out to right
+        const t = (elapsed - swoopInDuration - holdDuration) / swoopOutDuration;
+        const easeIn = Math.pow(t, 3); // Cubic ease in
+        const offsetX = 300 * easeIn;
+        battleMessageText.left = `${offsetX}px`;
+        battleMessageAnimationId = requestAnimationFrame(animate);
+      } else {
+        // Animation complete
+        battleMessageText.isVisible = false;
+        battleMessageText.left = "0px";
+        battleMessageAnimationId = null;
+      }
+    }
+
+    battleMessageAnimationId = requestAnimationFrame(animate);
+  }
+
   function updateQueuedActionsDisplay(): void {
     queuedActionsStack.clearControls();
 
@@ -4610,6 +4925,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
     // Track cumulative HP changes across queued actions
     const hpDeltas = new Map<Unit, number>();
+    // Track units whose conceal will be broken by earlier queued attacks
+    const concealBroken = new Set<Unit>();
 
     for (let i = 0; i < turnState.pendingActions.length; i++) {
       const action = turnState.pendingActions[i];
@@ -4627,12 +4944,19 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         const targetDesignation = UNIT_DESIGNATIONS[target.loadoutIndex] || "?";
         const targetClass = getClassData(target.unitClass).name;
         const isMelee = currentUnit.customization?.combatStyle === "melee";
-        const damage = isMelee ? currentUnit.attack * MELEE_DAMAGE_MULTIPLIER : currentUnit.attack;
+        const baseDamage = isMelee ? currentUnit.attack * MELEE_DAMAGE_MULTIPLIER : currentUnit.attack;
+        // Check if target is concealed (and conceal hasn't been broken by earlier action)
+        const targetIsConcealed = target.isConcealed && !concealBroken.has(target);
+        const damage = targetIsConcealed ? 0 : baseDamage;
+        if (targetIsConcealed) {
+          concealBroken.add(target); // Mark conceal as broken for subsequent actions
+        }
         const pendingHp = Math.max(0, Math.min(target.maxHp, target.hp + (hpDeltas.get(target) || 0)));
         const newHp = Math.max(0, pendingHp - damage);
         hpDeltas.set(target, (hpDeltas.get(target) || 0) + (newHp - pendingHp));
         const verb = isMelee ? "Strike" : "Shoot";
-        actionLine.text = `Action ${n} of ${total}: ${unitDesignation} ${unitClassName} ${verb} ${targetDesignation} ${targetClass} ${pendingHp}→${newHp}`;
+        const concealNote = targetIsConcealed ? " (Conceal)" : "";
+        actionLine.text = `Action ${n} of ${total}: ${unitDesignation} ${unitClassName} ${verb} ${targetDesignation} ${targetClass} ${pendingHp}→${newHp}${concealNote}`;
         actionLine.color = "#ff6666";
       } else if (action.type === "ability" && action.abilityName === "heal" && action.targetUnit) {
         const target = action.targetUnit;
@@ -4731,7 +5055,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   moveBtn.fontSize = 14;
   moveBtn.paddingBottom = "3px";
   moveBtn.onPointerClickObservable.add(() => {
-    if (currentUnit && !isAnimatingMovement) {
+    if (currentUnit && !isAnimatingMovement && !isDramaticCamera) {
       currentActionMode = "move";
       selectedUnit = currentUnit;
       highlightValidActions(currentUnit);
@@ -4749,7 +5073,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   attackBtn.fontSize = 14;
   attackBtn.paddingBottom = "3px";
   attackBtn.onPointerClickObservable.add(() => {
-    if (currentUnit && !isAnimatingMovement) {
+    if (currentUnit && !isAnimatingMovement && !isDramaticCamera) {
       currentActionMode = "attack";
       selectedUnit = currentUnit;
       // Highlight attack targets from shadow position (if pending move) or current position
@@ -4769,7 +5093,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   abilityBtn.cornerRadius = 5;
   abilityBtn.fontSize = 14;
   abilityBtn.onPointerClickObservable.add(() => {
-    if (currentUnit && !isAnimatingMovement && hasActionsRemaining()) {
+    if (currentUnit && !isAnimatingMovement && !isDramaticCamera && hasActionsRemaining()) {
       if (currentUnit.unitClass === "medic") {
         // Heal mode - highlight healable allies
         currentActionMode = "ability";
@@ -4843,7 +5167,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   menuExecuteBtn.cornerRadius = 5;
   menuExecuteBtn.fontSize = 12;
   menuExecuteBtn.onPointerClickObservable.add(() => {
-    if (currentUnit && !isExecutingActions) {
+    if (currentUnit && !isExecutingActions && !isDramaticCamera) {
       executeQueuedActions();
     }
   });
@@ -4992,6 +5316,17 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   return scene;
 }
 
+// Helper to disable IBL/environment features on PBR materials to prevent RGBD shader issues
+function disableMaterialIBL(meshes: AbstractMesh[]): void {
+  meshes.forEach(m => {
+    if (m.material && (m.material as PBRMaterial).reflectionTexture !== undefined) {
+      const mat = m.material as PBRMaterial;
+      mat.reflectionTexture = null;
+      mat.environmentIntensity = 0;
+    }
+  });
+}
+
 function createUnitMaterial(name: string, color: Color3, scene: Scene): StandardMaterial {
   const mat = new StandardMaterial(`${name}Mat`, scene);
   mat.diffuseColor = color;
@@ -5040,6 +5375,9 @@ async function createUnit(
   const modelRoot = result.meshes[0];
   const modelMeshes = result.meshes;
   const animationGroups = result.animationGroups;
+
+  // Disable IBL features to prevent RGBD shader timeout issues
+  disableMaterialIBL(modelMeshes);
 
   // Hide model initially until facing is set (prevents wrong-direction flash)
   modelRoot.setEnabled(false);

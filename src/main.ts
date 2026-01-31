@@ -9,9 +9,46 @@ import type { Loadout, SceneName, GameMode } from "./types";
 export type { SceneName } from "./types";
 
 const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
-const engine = new Engine(canvas, true);
+const engine = new Engine(canvas, true, {
+  // Reduce shader complexity and improve stability
+  disableWebGL2Support: false,
+  stencil: true,
+  preserveDrawingBuffer: false,
+});
+
+// Handle WebGL context loss (happens when tab is idle for a while)
+canvas.addEventListener("webglcontextlost", (event) => {
+  event.preventDefault();
+  console.warn("WebGL context lost. Waiting for restoration...");
+});
+
+canvas.addEventListener("webglcontextrestored", () => {
+  console.log("WebGL context restored. Reinitializing scene...");
+  // Force re-creation of current scene to rebuild shaders
+  if (currentScene) {
+    const sceneName = currentSceneName;
+    currentScene.dispose();
+    navigateTo(sceneName);
+  }
+});
+
+// Catch unhandled shader/WebGL errors that might not trigger context loss
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = String(event.reason || "");
+  if (reason.includes("rgbdDecode") || reason.includes("maximum retries") || reason.includes("shader")) {
+    console.warn("Shader compilation error detected, attempting recovery:", reason);
+    event.preventDefault();
+    // Attempt to recover by recreating the current scene
+    if (currentScene && !currentScene.isDisposed) {
+      const sceneName = currentSceneName;
+      currentScene.dispose();
+      navigateTo(sceneName);
+    }
+  }
+});
 
 let currentScene: Scene;
+let currentSceneName: SceneName = "start";
 let currentLoadout: Loadout | null = null;
 let currentGameMode: GameMode = "local-pvp";
 let currentHumanTeam: "player1" | "player2" = "player1";
@@ -36,6 +73,7 @@ export function navigateTo(sceneName: SceneName): void {
   if (currentScene) {
     currentScene.dispose();
   }
+  currentSceneName = sceneName;
 
   switch (sceneName) {
     case "start":

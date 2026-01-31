@@ -70,6 +70,28 @@ export const BATTLE_CAMERA_LOWER_RADIUS_LIMIT = 8;
 export const BATTLE_CAMERA_UPPER_RADIUS_LIMIT = 20;
 
 // =============================================================================
+// CAMERA (BATTLE SCENE - DRAMATIC ATTACK)
+// =============================================================================
+
+/** Distance from target (defender) for dramatic camera */
+export const DRAMATIC_CAMERA_RADIUS = 6;
+
+/** Vertical angle - 1.33 rad ≈ 76° (nearly horizontal, slight downward look) */
+export const DRAMATIC_CAMERA_BETA = 1.33;
+
+/** Height to look at on the target (defender's chest level) */
+export const DRAMATIC_CAMERA_TARGET_HEIGHT = 0.7;
+
+/** Duration of camera transition to dramatic position (ms) */
+export const DRAMATIC_CAMERA_TRANSITION_IN_MS = 350;
+
+/** Duration of camera transition back to normal (ms) */
+export const DRAMATIC_CAMERA_TRANSITION_OUT_MS = 450;
+
+/** How long to hold dramatic view after attack impact (ms) */
+export const DRAMATIC_CAMERA_HOLD_MS = 150;
+
+// =============================================================================
 // CAMERA (LOADOUT SCENE - PREVIEW)
 // =============================================================================
 
@@ -105,7 +127,7 @@ export const PREVIEW_MODEL_OFFSET = 100;
 export const MOVEMENT_DURATION_PER_TILE = 0.3;
 
 /** Delay before applying damage after attack animation starts (ms) */
-export const ATTACK_IMPACT_DELAY_MS = 300;
+export const ATTACK_IMPACT_DELAY_MS = 150;
 
 /** Title screen fade-in duration (seconds) */
 export const TITLE_FADE_IN_DURATION = 1.5;
@@ -282,3 +304,22 @@ export const TEAM_COLOR_COUNT = 7;
 /** Default team color indices (into TEAM_COLORS array) */
 export const DEFAULT_PLAYER1_COLOR_INDEX = 2; // Blue
 export const DEFAULT_PLAYER2_COLOR_INDEX = 0; // Red
+
+// =============================================================================
+// RESPONSIVE BREAKPOINTS
+// =============================================================================
+
+/** Maximum height for landscape phone detection */
+export const BREAKPOINT_LANDSCAPE_PHONE_HEIGHT = 500;
+
+/** Minimum width for tablet layout */
+export const BREAKPOINT_TABLET_MIN = 600;
+
+/** Minimum width for desktop layout */
+export const BREAKPOINT_DESKTOP_MIN = 1024;
+
+/** Minimum width for large desktop layout (side-by-side teams) */
+export const BREAKPOINT_LARGE_DESKTOP_MIN = 1200;
+
+/** Width threshold for small mobile adjustments */
+export const BREAKPOINT_SMALL_MOBILE = 500;
