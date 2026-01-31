@@ -46,15 +46,14 @@ import { createMusicPlayer, hexToColor3, hexToColor4 } from "../utils";
 let loadoutMusic: HTMLAudioElement | null = null;
 
 // Module-level editor state (persists across orientation reloads)
+// Set when editor opens, cleared when editor closes normally
 let pendingEditorRestore: {
   playerId: "player1" | "player2";
   unitIndex: number;
 } | null = null;
 
-// Track if customize editor is currently open (for orientation reload)
-let customizeEditorOpen = false;
-let customizeEditorPlayerId: "player1" | "player2" = "player1";
-let customizeEditorUnitIndex = 0;
+// Module-level flag to prevent multiple orientation reloads
+let orientationReloadInProgress = false;
 
 // COLOR PALETTE (matches title screen aesthetic)
 // ============================================
@@ -212,15 +211,13 @@ export function createLoadoutScene(
     const significantResize = Math.abs(newWidth - screenWidth) > 100 || Math.abs(newHeight - screenHeight) > 100;
 
     if (orientationChanged || significantResize) {
+      // Check module-level flag to prevent duplicate reloads
+      if (orientationReloadInProgress) return;
+      orientationReloadInProgress = true;
       reloadPending = true;
       isOrientationReload = true;
-      // Save customize editor state if open
-      if (customizeEditorOpen) {
-        pendingEditorRestore = {
-          playerId: customizeEditorPlayerId,
-          unitIndex: customizeEditorUnitIndex,
-        };
-      }
+      // Note: pendingEditorRestore is set in openCustomizeEditor and cleared in closeCustomizeEditor
+      // This ensures state is preserved even if this handler runs at an unexpected time
       setTimeout(() => {
         navigateTo("loadout");
       }, 100);
@@ -2301,10 +2298,8 @@ export function createLoadoutScene(
     // Save main scroll position to restore on close
     savedMainScrollPosition = scrollViewer.verticalBar.value;
 
-    // Track for orientation reload
-    customizeEditorOpen = true;
-    customizeEditorPlayerId = playerId;
-    customizeEditorUnitIndex = unitIndex;
+    // Track for orientation reload - set immediately so it persists through any async events
+    pendingEditorRestore = { playerId, unitIndex };
 
     // Deep copy the current state
     const current = unitStates[key];
@@ -2360,7 +2355,7 @@ export function createLoadoutScene(
 
     customizeOverlay.isVisible = false;
     editingState = null;
-    customizeEditorOpen = false;
+    pendingEditorRestore = null; // Clear restore state since we're closing normally
 
     // Restore main scroll position
     scrollViewer.verticalBar.value = savedMainScrollPosition;
@@ -2476,12 +2471,18 @@ export function createLoadoutScene(
   // Restore customize editor if it was open before orientation change
   if (pendingEditorRestore) {
     const { playerId, unitIndex } = pendingEditorRestore;
-    pendingEditorRestore = null;
-    // Use setTimeout to ensure all UI is ready
+    // Don't clear pendingEditorRestore here - it will be set again when openCustomizeEditor runs,
+    // and cleared when the editor is closed normally. This prevents race conditions with multiple resize events.
     setTimeout(() => {
       openCustomizeEditor(playerId, unitIndex);
     }, 100);
   }
+
+  // Clear the reload flag after scene is fully initialized
+  // Use setTimeout to allow any pending resize events to be ignored
+  setTimeout(() => {
+    orientationReloadInProgress = false;
+  }, 200);
 
   return scene;
 }
