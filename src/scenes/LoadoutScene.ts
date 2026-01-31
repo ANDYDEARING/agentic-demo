@@ -45,6 +45,17 @@ import { createMusicPlayer, hexToColor3, hexToColor4 } from "../utils";
 // Module-level music player (persists across orientation reloads)
 let loadoutMusic: HTMLAudioElement | null = null;
 
+// Module-level editor state (persists across orientation reloads)
+let pendingEditorRestore: {
+  playerId: "player1" | "player2";
+  unitIndex: number;
+} | null = null;
+
+// Track if customize editor is currently open (for orientation reload)
+let customizeEditorOpen = false;
+let customizeEditorPlayerId: "player1" | "player2" = "player1";
+let customizeEditorUnitIndex = 0;
+
 // COLOR PALETTE (matches title screen aesthetic)
 // ============================================
 const COLORS = {
@@ -199,6 +210,13 @@ export function createLoadoutScene(
     if (orientationChanged || significantResize) {
       reloadPending = true;
       isOrientationReload = true;
+      // Save customize editor state if open
+      if (customizeEditorOpen) {
+        pendingEditorRestore = {
+          playerId: customizeEditorPlayerId,
+          unitIndex: customizeEditorUnitIndex,
+        };
+      }
       setTimeout(() => {
         navigateTo("loadout");
       }, 100);
@@ -1524,42 +1542,33 @@ export function createLoadoutScene(
   optionsStack.paddingBottom = "20px";
   optionsScroll.addControl(optionsStack);
 
-  // Header with back button and title
+  // Header with title (symbol + Customize)
   const headerRow = new StackPanel("editorHeader");
   headerRow.isVertical = false;
   headerRow.width = "100%";
   headerRow.height = "50px";
-  headerRow.paddingLeft = "10px";
-  headerRow.paddingRight = "10px";
-  headerRow.paddingTop = "10px";
+  headerRow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+  headerRow.paddingLeft = "15px";
+  headerRow.paddingTop = "8px";
+  headerRow.paddingBottom = "8px";
   optionsStack.addControl(headerRow);
 
-  const backBtn = Button.CreateSimpleButton("backBtn", "← Back");
-  backBtn.width = "80px";
-  backBtn.height = "36px";
-  backBtn.background = COLORS.bgButton;
-  backBtn.color = COLORS.textPrimary;
-  backBtn.cornerRadius = 4;
-  backBtn.fontSize = smallFontSize;
-  backBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-  backBtn.onPointerClickObservable.add(() => closeCustomizeEditor(false));
-  headerRow.addControl(backBtn);
+  const editorSymbol = new TextBlock("editorSymbol");
+  editorSymbol.text = "Δ";
+  editorSymbol.color = COLORS.accentOrange;
+  editorSymbol.fontSize = 24;
+  editorSymbol.fontFamily = "'Bebas Neue', sans-serif";
+  editorSymbol.resizeToFit = true;
+  editorSymbol.paddingRight = "20px";
+  headerRow.addControl(editorSymbol);
 
   const editorTitle = new TextBlock("editorTitle");
-  editorTitle.text = "Δ Customize";
+  editorTitle.text = "Customize";
   editorTitle.color = COLORS.accentOrange;
   editorTitle.fontSize = 20;
   editorTitle.fontFamily = "'Bebas Neue', sans-serif";
-  editorTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
   editorTitle.resizeToFit = true;
   headerRow.addControl(editorTitle);
-
-  // Spacer to balance the back button
-  const headerSpacer = new Rectangle();
-  headerSpacer.width = "80px";
-  headerSpacer.height = "1px";
-  headerSpacer.thickness = 0;
-  headerRow.addControl(headerSpacer);
 
   // Option button tracking
   const editorOptionButtons: Map<string, Button[]> = new Map();
@@ -1692,8 +1701,24 @@ export function createLoadoutScene(
     return container;
   }
 
+  // Top section: Class/Boost/Weapon controls + description
+  const topSectionGrid = new Grid("topSectionGrid");
+  topSectionGrid.width = "100%";
+  // Height for 3 options: each ~(24px label + buttonHeight + 16px padding) = ~84px each
+  topSectionGrid.height = `${(24 + smallButtonHeight + 20) * 3}px`;
+  topSectionGrid.addColumnDefinition(0.5);
+  topSectionGrid.addColumnDefinition(0.5);
+  topSectionGrid.addRowDefinition(1);
+  optionsStack.addControl(topSectionGrid);
+
+  // Left column: controls
+  const controlsStack = new StackPanel("controlsStack");
+  controlsStack.isVertical = true;
+  controlsStack.width = "100%";
+  topSectionGrid.addControl(controlsStack, 0, 0);
+
   // Add CLASS option
-  optionsStack.addControl(createEditorOption(
+  controlsStack.addControl(createEditorOption(
     "Class",
     ["Soldier", "Operator", "Medic"],
     () => ALL_CLASSES.indexOf(editingState?.selectedClass || "soldier"),
@@ -1706,38 +1731,130 @@ export function createLoadoutScene(
           editingState.customization = randomizeAppearance(editingState.selectedStyle);
           refreshAllEditorOptions();
         }
+        updateDescriptions();
       }
     }
   ));
 
   // Add BOOST option
-  optionsStack.addControl(createEditorOption(
+  controlsStack.addControl(createEditorOption(
     "Boost",
     BOOST_INFO.map(b => b.name),
     () => editingState?.selectedBoost ?? 0,
-    (idx) => { if (editingState) editingState.selectedBoost = idx; }
+    (idx) => {
+      if (editingState) {
+        editingState.selectedBoost = idx;
+        updateDescriptions();
+      }
+    }
   ));
 
   // Add WEAPON option
-  optionsStack.addControl(createEditorOption(
+  controlsStack.addControl(createEditorOption(
     "Weapon",
-    ["Ranged", "Melee"],
+    [WEAPON_INFO.ranged.label, WEAPON_INFO.melee.label],
     () => editingState?.selectedStyle === "melee" ? 1 : 0,
     (idx) => {
       if (editingState) {
         editingState.selectedStyle = idx === 1 ? "melee" : "ranged";
         editingState.customization.combatStyle = editingState.selectedStyle;
+        updateDescriptions();
       }
     }
   ));
 
-  // Separator
+  // Right column: descriptions for class, boost, weapon
+  const descStack = new StackPanel("descStack");
+  descStack.isVertical = true;
+  descStack.width = "100%";
+  descStack.paddingLeft = "10px";
+  descStack.paddingRight = "15px";
+  descStack.paddingTop = "8px";
+  descStack.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+  topSectionGrid.addControl(descStack, 0, 1);
+
+  // Class description
+  const classTagline = new TextBlock("classTagline");
+  classTagline.text = "";
+  classTagline.color = COLORS.textSecondary;
+  classTagline.fontSize = smallFontSize;
+  classTagline.textWrapping = true;
+  classTagline.resizeToFit = true;
+  classTagline.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+  classTagline.paddingBottom = "8px";
+  descStack.addControl(classTagline);
+
+  const abilityLabel = new TextBlock("abilityLabel");
+  abilityLabel.text = "";
+  abilityLabel.color = COLORS.accentOrange;
+  abilityLabel.fontSize = smallFontSize;
+  abilityLabel.fontFamily = "'Bebas Neue', sans-serif";
+  abilityLabel.resizeToFit = true;
+  abilityLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+  descStack.addControl(abilityLabel);
+
+  const abilityDesc = new TextBlock("abilityDesc");
+  abilityDesc.text = "";
+  abilityDesc.color = COLORS.textMuted;
+  abilityDesc.fontSize = smallFontSize;
+  abilityDesc.textWrapping = true;
+  abilityDesc.resizeToFit = true;
+  abilityDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+  abilityDesc.paddingBottom = "8px";
+  descStack.addControl(abilityDesc);
+
+  // Boost description
+  const boostDesc = new TextBlock("boostDesc");
+  boostDesc.text = "";
+  boostDesc.color = COLORS.textMuted;
+  boostDesc.fontSize = smallFontSize;
+  boostDesc.textWrapping = true;
+  boostDesc.resizeToFit = true;
+  boostDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+  boostDesc.paddingBottom = "8px";
+  descStack.addControl(boostDesc);
+
+  // Weapon description
+  const weaponDesc = new TextBlock("weaponDesc");
+  weaponDesc.text = "";
+  weaponDesc.color = COLORS.textMuted;
+  weaponDesc.fontSize = smallFontSize;
+  weaponDesc.textWrapping = true;
+  weaponDesc.resizeToFit = true;
+  weaponDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+  descStack.addControl(weaponDesc);
+
+  function updateDescriptions(): void {
+    if (!editingState) return;
+    // Class
+    const classInfo = CLASS_INFO[editingState.selectedClass];
+    classTagline.text = `"${classInfo.tagline}"`;
+    abilityLabel.text = classInfo.abilityName;
+    abilityDesc.text = classInfo.abilityDesc;
+    // Boost
+    const boost = BOOST_INFO[editingState.selectedBoost];
+    boostDesc.text = `${boost.desc} +${boost.value}% ${boost.stat}`;
+    // Weapon
+    const weapon = WEAPON_INFO[editingState.selectedStyle];
+    weaponDesc.text = weapon.desc;
+  }
+
+  // Separator with padding
+  const separatorContainer = new Rectangle("editorSeparatorContainer");
+  separatorContainer.width = "100%";
+  separatorContainer.height = "17px"; // 8px top + 1px line + 8px bottom
+  separatorContainer.thickness = 0;
+  separatorContainer.paddingTop = "8px";
+  separatorContainer.paddingBottom = "8px";
+  optionsStack.addControl(separatorContainer);
+
   const editorSeparator = new Rectangle("editorSeparator");
   editorSeparator.width = "90%";
   editorSeparator.height = "1px";
   editorSeparator.background = COLORS.borderWarm;
   editorSeparator.thickness = 0;
-  optionsStack.addControl(editorSeparator);
+  editorSeparator.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+  separatorContainer.addControl(editorSeparator);
 
   // Add BODY option
   optionsStack.addControl(createEditorOption(
@@ -2022,6 +2139,11 @@ export function createLoadoutScene(
     editingUnitIndex = unitIndex;
     const key = `${playerId}_${unitIndex}`;
 
+    // Track for orientation reload
+    customizeEditorOpen = true;
+    customizeEditorPlayerId = playerId;
+    customizeEditorUnitIndex = unitIndex;
+
     // Deep copy the current state
     const current = unitStates[key];
     // Note: originalState backup removed - was for cancel/undo feature not yet implemented
@@ -2033,9 +2155,10 @@ export function createLoadoutScene(
       hasBeenCustomized: current.hasBeenCustomized,
     };
 
-    editorTitle.text = `${UNIT_DESIGNATIONS[unitIndex]} Customize`;
+    editorSymbol.text = UNIT_DESIGNATIONS[unitIndex];
 
     refreshAllEditorOptions();
+    updateDescriptions();
 
     editorLoadedModelKey = ""; // Force model reload
     updateEditorPreview();
@@ -2070,6 +2193,7 @@ export function createLoadoutScene(
 
     customizeOverlay.isVisible = false;
     editingState = null;
+    customizeEditorOpen = false;
 
     // Clean up editor preview model
     if (editorPreviewMesh) {
@@ -2177,6 +2301,16 @@ export function createLoadoutScene(
   }
 
   updateStartButton();
+
+  // Restore customize editor if it was open before orientation change
+  if (pendingEditorRestore) {
+    const { playerId, unitIndex } = pendingEditorRestore;
+    pendingEditorRestore = null;
+    // Use setTimeout to ensure all UI is ready
+    setTimeout(() => {
+      openCustomizeEditor(playerId, unitIndex);
+    }, 100);
+  }
 
   return scene;
 }
