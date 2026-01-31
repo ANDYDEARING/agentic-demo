@@ -186,6 +186,9 @@ export function isInBounds(x: number, z: number, gridSize: number): boolean {
 // AUDIO UTILITIES
 // =============================================================================
 
+/** Music player with dispose method for cleanup */
+export type MusicPlayer = HTMLAudioElement & { dispose: () => void };
+
 /**
  * Create and configure an audio element for music playback
  *
@@ -193,29 +196,43 @@ export function isInBounds(x: number, z: number, gridSize: number): boolean {
  * @param volume - Volume level (0-1)
  * @param loop - Whether to loop the audio
  * @param loopBuffer - Time before end to trigger manual loop (seconds)
- * @returns Configured HTMLAudioElement
+ * @returns Configured HTMLAudioElement with dispose method
  */
 export function createMusicPlayer(
   src: string,
   volume: number,
   loop: boolean = true,
   loopBuffer: number = 0.5
-): HTMLAudioElement {
-  const audio = new Audio(src);
+): MusicPlayer {
+  const audio = new Audio(src) as MusicPlayer;
   audio.volume = volume;
+
+  // Track listener for cleanup
+  let loopHandler: (() => void) | null = null;
 
   // Use manual loop handling for seamless playback (avoids gap at end)
   // Don't set audio.loop = true when using manual looping to avoid double-play on mobile
   if (loop && loopBuffer > 0) {
     audio.loop = false; // We handle looping manually
-    audio.addEventListener("timeupdate", () => {
+    loopHandler = () => {
       if (audio.duration && audio.currentTime >= audio.duration - loopBuffer) {
         audio.currentTime = 0;
       }
-    });
+    };
+    audio.addEventListener("timeupdate", loopHandler);
   } else {
     audio.loop = loop;
   }
+
+  // Dispose method to clean up listeners and stop playback
+  audio.dispose = () => {
+    audio.pause();
+    if (loopHandler) {
+      audio.removeEventListener("timeupdate", loopHandler);
+      loopHandler = null;
+    }
+    audio.src = "";
+  };
 
   return audio;
 }

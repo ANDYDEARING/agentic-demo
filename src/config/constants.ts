@@ -304,3 +304,22 @@ export const TEAM_COLOR_COUNT = 7;
 /** Default team color indices (into TEAM_COLORS array) */
 export const DEFAULT_PLAYER1_COLOR_INDEX = 2; // Blue
 export const DEFAULT_PLAYER2_COLOR_INDEX = 0; // Red
+
+// =============================================================================
+// RESPONSIVE BREAKPOINTS
+// =============================================================================
+
+/** Maximum height for landscape phone detection */
+export const BREAKPOINT_LANDSCAPE_PHONE_HEIGHT = 500;
+
+/** Minimum width for tablet layout */
+export const BREAKPOINT_TABLET_MIN = 600;
+
+/** Minimum width for desktop layout */
+export const BREAKPOINT_DESKTOP_MIN = 1024;
+
+/** Minimum width for large desktop layout (side-by-side teams) */
+export const BREAKPOINT_LARGE_DESKTOP_MIN = 1200;
+
+/** Width threshold for small mobile adjustments */
+export const BREAKPOINT_SMALL_MOBILE = 500;

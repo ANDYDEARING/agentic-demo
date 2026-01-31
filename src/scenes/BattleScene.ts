@@ -95,16 +95,20 @@ import {
   DRAMATIC_CAMERA_TRANSITION_IN_MS,
   DRAMATIC_CAMERA_TRANSITION_OUT_MS,
   DRAMATIC_CAMERA_HOLD_MS,
+  BREAKPOINT_LANDSCAPE_PHONE_HEIGHT,
+  BREAKPOINT_TABLET_MIN,
+  BREAKPOINT_DESKTOP_MIN,
+  BREAKPOINT_SMALL_MOBILE,
 } from "../config";
 
 // Import audio config
 import { MUSIC, SFX, AUDIO_VOLUMES, LOOP_BUFFER_TIME } from "../config";
 
 // Import utility functions
-import { hexToColor3, createMusicPlayer, playSfx, rgbToColor3 } from "../utils";
+import { hexToColor3, createMusicPlayer, playSfx, rgbToColor3, type MusicPlayer } from "../utils";
 
 // Module-level music player (persists across orientation reloads)
-let battleMusic: HTMLAudioElement | null = null;
+let battleMusic: MusicPlayer | null = null;
 
 // Import command pattern for action queue
 import {
@@ -117,7 +121,6 @@ import {
   createHealCommand,
   createConcealCommand,
   createCoverCommand,
-  processCommandQueue,
   ControllerManager,
   createLocalPvPControllers,
   createPvEControllers,
@@ -160,9 +163,9 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   // ============================================
   const screenWidth = engine.getRenderWidth();
   const screenHeight = engine.getRenderHeight();
-  const isLandscapePhone = screenHeight < 500 && screenWidth < 1024;
-  const isMobile = screenWidth < 600 && !isLandscapePhone;
-  const isTablet = (screenWidth >= 600 && screenWidth < 1024) || isLandscapePhone;
+  const isLandscapePhone = screenHeight < BREAKPOINT_LANDSCAPE_PHONE_HEIGHT && screenWidth < BREAKPOINT_DESKTOP_MIN;
+  const isMobile = screenWidth < BREAKPOINT_TABLET_MIN && !isLandscapePhone;
+  const isTablet = (screenWidth >= BREAKPOINT_TABLET_MIN && screenWidth < BREAKPOINT_DESKTOP_MIN) || isLandscapePhone;
   const isTouch = isMobile || isTablet;
 
   // Note: We don't reload BattleScene on orientation change since that would
@@ -182,8 +185,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     sceneDisposed = true;
     // Stop music when leaving battle scene
     if (battleMusic) {
-      battleMusic.pause();
-      battleMusic.src = "";
+      battleMusic.dispose();
       battleMusic = null;
     }
   });
@@ -575,8 +577,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     };
   }
 
-  // Export state extraction for external use (AI, simulations)
-  void extractBattleState; // Prevent unused warning
+  // Note: extractBattleState is defined for AI/simulation use but not currently called.
+  // When implementing AI decision-making, call extractBattleState() to get pure game state.
 
   // GUI - ensure it captures pointer events before the scene
   const gui = AdvancedDynamicTexture.CreateFullscreenUI("UI");
@@ -713,20 +715,17 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     };
   }
 
-  /** Get current controller manager (for external configuration) */
-  function getControllerManager(): ControllerManager {
+  // Note: Controller manager functions available for runtime mode switching.
+  // Currently unused but kept for future network play or settings menu implementation.
+  function _getControllerManager(): ControllerManager {
     return controllerManager;
   }
-
-  /** Set controller manager (to switch between PvP/PvE modes) */
-  function setControllerManager(manager: ControllerManager): void {
+  function _setControllerManager(manager: ControllerManager): void {
     controllerManager.dispose();
     controllerManager = manager;
   }
-
-  // Export controller functions for external use
-  void getControllerManager;
-  void setControllerManager;
+  void _getControllerManager;
+  void _setControllerManager;
 
   // Callback for when a unit's turn starts (set later by command menu)
   let onTurnStartCallback: ((unit: Unit) => void) | null = null;
@@ -1092,9 +1091,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   const blockedMaterial = new StandardMaterial("blockedMat", scene);
   blockedMaterial.diffuseColor = rgbToColor3(HIGHLIGHT_BLOCKED);
 
-  // Export references for future use (prevents unused warnings)
-  const _helpers = { getTilesInLOS, getValidAttackTiles, createShadowPreview, clearShadowPreview, shadowPosition: () => shadowPosition, highlightAttackTargets, getAttackableEnemiesWithLOS, showAttackPreview, clearAttackPreview, highlightHealTargets, toggleConceal, toggleCover, clearCoverVisualization };
-  void _helpers;
 
   // ============================================
   // ANIMATED MOVEMENT
@@ -1751,18 +1747,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     return turnState !== null && turnState.actionsRemaining > 0;
   }
 
-  function consumeAction(): void {
-    if (turnState) {
-      turnState.actionsRemaining--;
-      updateCommandMenu();
-
-      // Auto-end turn when no actions remaining
-      if (turnState.actionsRemaining <= 0) {
-        setTimeout(() => endTurn(), 100);  // Small delay for visual feedback
-      }
-    }
-  }
-
   function getValidMoveTiles(unit: Unit, fromX?: number, fromZ?: number): { x: number; z: number }[] {
     if (!hasActionsRemaining()) return []; // No actions remaining
     const startX = fromX ?? unit.gridX;
@@ -1880,7 +1864,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   }
 
   // Legacy function - kept for potential AI/simulation use (simpler than LOS version)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function getAttackableEnemiesSimple(unit: Unit, fromX?: number, fromZ?: number): Unit[] {
     if (!hasActionsRemaining()) return []; // No actions remaining
     // Use shadow position if pending move, otherwise use provided or current position
@@ -1892,7 +1875,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       return distance <= unit.attackRange;
     });
   }
-  // Export for future AI/simulation use
   void getAttackableEnemiesSimple;
 
   function getHealableAllies(unit: Unit, fromX?: number, fromZ?: number): Unit[] {
@@ -2008,11 +1990,11 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
     const attackTiles = getValidAttackTiles(unit, x, z);
 
-    return units.filter(player2 => {
-      if (player2.team === unit.team) return false;
-      if (player2.hp <= 0) return false;
+    return units.filter(enemy => {
+      if (enemy.team === unit.team) return false;
+      if (enemy.hp <= 0) return false;
 
-      const tileInfo = attackTiles.find(t => t.x === player2.gridX && t.z === player2.gridZ);
+      const tileInfo = attackTiles.find(t => t.x === enemy.gridX && t.z === enemy.gridZ);
       return tileInfo?.hasLOS ?? false;
     });
   }
@@ -2195,41 +2177,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         }
       });
     }
-  }
-
-  // Toggle Conceal for Operator (damage type)
-  function toggleConceal(unit: Unit): void {
-    // Always turn conceal ON (never toggle off)
-    if (unit.isConcealed) {
-      console.log(`${unit.team} ${unit.unitClass} is already Concealed.`);
-      return;
-    }
-
-    unit.isConcealed = true;
-    applyConcealVisual(unit);
-    console.log(`${unit.team} ${unit.unitClass} activates Conceal!`);
-
-    // Play interact animation
-    if (unit.modelMeshes) {
-      const weaponMeshes = unit.modelMeshes.filter(m =>
-        m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
-      );
-      weaponMeshes.forEach(m => m.setEnabled(false));
-
-      playAnimation(unit, "Interact", false, () => {
-        const isMelee = unit.customization?.combatStyle === "melee";
-        unit.modelMeshes?.forEach(m => {
-          if (m.name.toLowerCase().includes("sword")) {
-            m.setEnabled(isMelee);
-          } else if (m.name.toLowerCase().includes("pistol")) {
-            m.setEnabled(!isMelee);
-          }
-        });
-        playIdleAnimation(unit);
-      });
-    }
-
-    consumeAction();
   }
 
   // Cover tiles tracking for visual display - per unit
@@ -2550,66 +2497,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     return true;
   }
 
-  // Toggle Cover for Soldier (tank type)
-  function toggleCover(unit: Unit): void {
-    unit.isCovering = !unit.isCovering;
-
-    // Clear existing cover for this unit only
-    clearCoverTilesForUnit(unit);
-    clearCoverVisualizationForUnit(unit);
-
-    if (unit.isCovering) {
-      // Get covered tiles based on weapon type
-      const isMelee = unit.customization?.combatStyle === "melee";
-      let coveredTiles: { x: number; z: number }[];
-
-      if (isMelee) {
-        // Sword: Cover all 8 adjacent tiles with LOS check for diagonals
-        coveredTiles = getAdjacentTiles(unit.gridX, unit.gridZ).filter(tile => {
-          const isDiagonal = tile.x !== unit.gridX && tile.z !== unit.gridZ;
-          return !isDiagonal || hasLineOfSight(unit.gridX, unit.gridZ, tile.x, tile.z, unit);
-        });
-      } else {
-        // Gun: Cover all tiles in LOS that they could shoot (not adjacent)
-        coveredTiles = getTilesInLOS(unit.gridX, unit.gridZ, true, unit);
-      }
-
-      // Add to cover map and create visualization
-      setCoverTiles(unit, coveredTiles);
-      for (const { x, z } of coveredTiles) {
-        createCoverBorder(unit, x, z, unit.teamColor);
-      }
-      updateHazardStripes();  // Check for dual-covered tiles
-
-      console.log(`${unit.team} ${unit.unitClass} activates Cover! (${coveredTiles.length} tiles)`);
-    } else {
-      updateHazardStripes();  // Update after deactivation
-      console.log(`${unit.team} ${unit.unitClass} deactivates Cover.`);
-    }
-
-    // Play interact animation
-    if (unit.modelMeshes) {
-      const weaponMeshes = unit.modelMeshes.filter(m =>
-        m.name.toLowerCase().includes("sword") || m.name.toLowerCase().includes("pistol")
-      );
-      weaponMeshes.forEach(m => m.setEnabled(false));
-
-      playAnimation(unit, "Interact", false, () => {
-        const isMelee = unit.customization?.combatStyle === "melee";
-        unit.modelMeshes?.forEach(m => {
-          if (m.name.toLowerCase().includes("sword")) {
-            m.setEnabled(isMelee);
-          } else if (m.name.toLowerCase().includes("pistol")) {
-            m.setEnabled(!isMelee);
-          }
-        });
-        playIdleAnimation(unit);
-      });
-    }
-
-    consumeAction();
-  }
-
   function createCoverBorder(unit: Unit, tileX: number, tileZ: number, color: Color3): void {
     const cornerSize = 0.12;
     const cornerThickness = 0.05;
@@ -2669,16 +2556,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       vBox.isPickable = false;
       unitMeshes.push(vBox);
     }
-  }
-
-  // Clear ALL cover visualizations (for all units)
-  function clearCoverVisualization(): void {
-    for (const [_unit, meshes] of coverMeshesByUnit.entries()) {
-      for (const mesh of meshes) {
-        mesh.dispose();
-      }
-    }
-    coverMeshesByUnit.clear();
   }
 
   function isValidMove(x: number, z: number): boolean {
@@ -2760,7 +2637,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     gui.addControl(overlay);
 
     const container = new StackPanel();
-    container.width = screenWidth < 500 ? "95%" : "600px";
+    container.width = screenWidth < BREAKPOINT_SMALL_MOBILE ? "95%" : "600px";
     container.height = "200px";
     overlay.addControl(container);
 
@@ -2773,7 +2650,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     const text = new TextBlock();
     text.text = `${winnerName} Wins!`;
     text.color = colorHex;
-    text.fontSize = screenWidth < 500 ? 48 : 72;
+    text.fontSize = screenWidth < BREAKPOINT_SMALL_MOBILE ? 48 : 72;
     text.width = "100%";
     text.height = "100px";
     text.fontWeight = "bold";
@@ -2811,10 +2688,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     }
   }
 
-  function endTurn(): void {
-    endCurrentUnitTurn();
-  }
-
   // updateTurnIndicator removed - info now shown in command menu popup
 
   function canSelectUnit(unit: Unit): boolean {
@@ -2827,31 +2700,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
   // Attack preview tiles when hovering during move mode
   let attackPreviewTiles: Mesh[] = [];
-
-  function showAttackPreview(unit: Unit, fromX: number, fromZ: number): void {
-    clearAttackPreview();
-
-    // Get valid attack tiles from shadow position
-    const attackTiles = getValidAttackTiles(unit, fromX, fromZ);
-
-    // Show preview on player2 tiles
-    for (const player2 of units) {
-      if (player2.team === unit.team) continue;
-      if (player2.hp <= 0) continue;
-
-      const tileInfo = attackTiles.find(t => t.x === player2.gridX && t.z === player2.gridZ);
-      if (tileInfo) {
-        const tile = tiles[player2.gridX][player2.gridZ];
-        // Use a lighter version of attack/blocked colors for preview
-        if (tileInfo.hasLOS) {
-          tile.material = attackableMaterial;
-        } else {
-          tile.material = blockedMaterial;
-        }
-        attackPreviewTiles.push(tile);
-      }
-    }
-  }
 
   function clearAttackPreview(): void {
     for (const tile of attackPreviewTiles) {
@@ -3054,11 +2902,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     const unit = turnState.unit;
     const actions = [...turnState.pendingActions];
 
-    // Note: commandQueue contains the same actions as pendingActions
-    // To use the command pattern instead, replace the code below with:
-    // processCommandQueue(commandQueue, commandExecutor);
-    // return;
-    void processCommandQueue; // Mark as available for future use
+    // Note: This uses inline action processing for visual animations.
+    // For headless simulation, use: processCommandQueue(commandQueue, commandExecutor);
 
     clearShadowPreview();
     clearAttackPreview();
@@ -3496,8 +3341,10 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   /**
    * Command executor implementation for the battle scene.
    * Bridges between pure commands and visual execution.
+   * Note: Currently unused - kept for future headless simulation support.
    */
-  const commandExecutor: CommandExecutor = {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _commandExecutor: CommandExecutor = {
     executeMove(command, onComplete) {
       if (!turnState) { onComplete(); return; }
       const unit = turnState.unit;
@@ -3556,9 +3403,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       });
     },
   };
-
-  // Export command executor for external use (AI, network play)
-  void commandExecutor;
+  void _commandExecutor;
 
   // ============================================
   // UNDO SYSTEM

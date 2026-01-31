@@ -37,13 +37,17 @@ import {
   SKIN_TONES,
   HAIR_COLORS,
   EYE_COLORS,
+  BREAKPOINT_LANDSCAPE_PHONE_HEIGHT,
+  BREAKPOINT_TABLET_MIN,
+  BREAKPOINT_DESKTOP_MIN,
+  BREAKPOINT_LARGE_DESKTOP_MIN,
 } from "../config";
 import { MUSIC, AUDIO_VOLUMES, LOOP_BUFFER_TIME, DEBUG_SKIP_OFFSET } from "../config";
-import { createMusicPlayer, hexToColor3, hexToColor4 } from "../utils";
+import { createMusicPlayer, hexToColor3, hexToColor4, type MusicPlayer } from "../utils";
 
 // ============================================
 // Module-level music player (persists across orientation reloads)
-let loadoutMusic: HTMLAudioElement | null = null;
+let loadoutMusic: MusicPlayer | null = null;
 
 // Module-level editor state (persists across orientation reloads)
 // Set when editor opens, cleared when editor closes normally
@@ -190,14 +194,14 @@ export function createLoadoutScene(
   const screenWidth = engine.getRenderWidth();
   const screenHeight = engine.getRenderHeight();
   // Landscape phones (short height) should use mobile layout with tabs
-  const isLandscapePhone = screenHeight < 500 && screenWidth < 1024;
+  const isLandscapePhone = screenHeight < BREAKPOINT_LANDSCAPE_PHONE_HEIGHT && screenWidth < BREAKPOINT_DESKTOP_MIN;
   // Mobile: portrait phones OR landscape phones (both use single stack with tabs)
-  const isMobile = screenWidth < 600 || isLandscapePhone;
-  const isTablet = screenWidth >= 600 && screenWidth < 1024 && !isLandscapePhone;
+  const isMobile = screenWidth < BREAKPOINT_TABLET_MIN || isLandscapePhone;
+  const isTablet = screenWidth >= BREAKPOINT_TABLET_MIN && screenWidth < BREAKPOINT_DESKTOP_MIN && !isLandscapePhone;
   // Large desktop: wide enough to show both teams side by side horizontally (1200px+)
-  const isLargeDesktop = screenWidth >= 1200;
+  const isLargeDesktop = screenWidth >= BREAKPOINT_LARGE_DESKTOP_MIN;
   // Portrait tablet (iPad portrait): tall screen, wide enough - stack both teams vertically, no tabs
-  const isPortraitTablet = screenWidth >= 600 && screenHeight > screenWidth && !isLandscapePhone;
+  const isPortraitTablet = screenWidth >= BREAKPOINT_TABLET_MIN && screenHeight > screenWidth && !isLandscapePhone;
   // Layout modes:
   // 1. isLargeDesktop: Both teams side by side horizontally
   // 2. isPortraitTablet: Both teams stacked vertically (no tabs)
@@ -268,8 +272,7 @@ export function createLoadoutScene(
 
   scene.onDisposeObservable.add(() => {
     if (!isOrientationReload && loadoutMusic) {
-      loadoutMusic.pause();
-      loadoutMusic.src = "";
+      loadoutMusic.dispose();
       loadoutMusic = null;
     }
   });
