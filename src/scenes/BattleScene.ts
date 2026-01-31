@@ -137,6 +137,10 @@ const BOOST_INFO = [
 
 export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loadout: Loadout | null): Scene {
   const scene = new Scene(engine);
+
+  // Track if scene has been disposed (prevents async operations on disposed scene)
+  let sceneDisposed = false;
+
   // Use centralized scene background color
   const bg = SCENE_BACKGROUNDS.battle;
   scene.clearColor.set(bg.r, bg.g, bg.b, bg.a);
@@ -165,6 +169,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   }
 
   scene.onDisposeObservable.add(() => {
+    sceneDisposed = true;
     // Stop music when leaving battle scene
     if (battleMusic) {
       battleMusic.pause();
@@ -1339,6 +1344,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   async function spawnAllUnits(): Promise<void> {
     // Spawn player1 units
     for (let i = 0; i < player1Selections.length; i++) {
+      if (sceneDisposed) return; // Stop if scene disposed during spawn
       const pos = player1Positions[i];
       const selection = player1Selections[i];
       const unit = await createUnit(
@@ -1355,11 +1361,13 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         selection.customization,
         selection.boost
       );
+      if (sceneDisposed) return; // Stop if scene disposed during load
       units.push(unit);
     }
 
     // Spawn player2 units
     for (let i = 0; i < player2Selections.length; i++) {
+      if (sceneDisposed) return; // Stop if scene disposed during spawn
       const pos = player2Positions[i];
       const selection = player2Selections[i];
       const unit = await createUnit(
@@ -1376,6 +1384,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         selection.customization,
         selection.boost
       );
+      if (sceneDisposed) return; // Stop if scene disposed during load
       units.push(unit);
     }
 
@@ -1395,8 +1404,10 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       }
     }
 
-    // Start the game after all units are loaded
-    startGame();
+    // Start the game after all units are loaded (if scene not disposed)
+    if (!sceneDisposed) {
+      startGame();
+    }
   }
 
   // Start spawning (game will start when done)

@@ -145,6 +145,12 @@ export function createLoadoutScene(
 ): Scene {
   const scene = new Scene(engine);
 
+  // Track if scene has been disposed (prevents async operations on disposed scene)
+  let sceneDisposed = false;
+
+  // Track RTTs for proper disposal
+  const rttList: RenderTargetTexture[] = [];
+
   // Use centralized scene background color
   const bg = SCENE_BACKGROUNDS.loadout;
   scene.clearColor = new Color4(bg.r, bg.g, bg.b, bg.a);
@@ -236,6 +242,12 @@ export function createLoadoutScene(
 
   // Clean up RTTs before scene disposal
   scene.onDisposeObservable.add(() => {
+    sceneDisposed = true;
+    // Properly dispose each RTT
+    rttList.forEach(rtt => {
+      rtt.dispose();
+    });
+    rttList.length = 0;
     scene.customRenderTargets.length = 0;
   });
 
@@ -1048,6 +1060,7 @@ export function createLoadoutScene(
     const rtt = new RenderTargetTexture(`rtt_${key}`, rttSize, scene, false);
     rtt.clearColor = hexToColor4(COLORS.bgPreview);
     scene.customRenderTargets.push(rtt);
+    rttList.push(rtt);
 
     const previewCamera = new ArcRotateCamera(
       `cam_${key}`,
@@ -1275,6 +1288,13 @@ export function createLoadoutScene(
       loadedModelKey = modelKey;
 
       SceneLoader.ImportMeshAsync("", modelPath, "", scene).then((result) => {
+        // Skip if scene was disposed while loading
+        if (sceneDisposed) {
+          result.meshes.forEach(m => m.dispose());
+          result.animationGroups.forEach(ag => ag.dispose());
+          return;
+        }
+
         unitPreviewMesh = result.meshes[0];
         unitPreviewMeshes = result.meshes;
         unitPreviewMesh.position = new Vector3(0, 0, 0);
@@ -1293,6 +1313,7 @@ export function createLoadoutScene(
         previewModelLoaded = true;
         updatePreviewAppearance();
       }).catch((error) => {
+        if (sceneDisposed) return; // Ignore errors after disposal
         console.error(`Failed to load model: ${modelPath}`, error);
         loadingText.text = "Error loading";
       });
@@ -1349,6 +1370,7 @@ export function createLoadoutScene(
   const editorRtt = new RenderTargetTexture("editorRtt", editorRttSize, scene, false);
   editorRtt.clearColor = hexToColor4(COLORS.bgPreview);
   scene.customRenderTargets.push(editorRtt);
+  rttList.push(editorRtt);
 
   const editorPreviewCamera = new ArcRotateCamera(
     "editorPreviewCam",
@@ -1409,16 +1431,28 @@ export function createLoadoutScene(
     });
   });
 
-  // Editor layout
+  // Editor layout - responsive based on screen size and orientation
   const editorGrid = new Grid("editorGrid");
   editorGrid.width = "100%";
   editorGrid.height = "100%";
 
-  if (isMobile) {
-    editorGrid.addRowDefinition(0.35);
-    editorGrid.addRowDefinition(0.65);
-    editorGrid.addColumnDefinition(1);
+  const isSmallScreen = screenWidth < 1200;
+  const isEditorPortrait = screenHeight > screenWidth;
+
+  if (isSmallScreen) {
+    if (isEditorPortrait) {
+      // Small + portrait: preview on top, controls on bottom
+      editorGrid.addRowDefinition(0.5);
+      editorGrid.addRowDefinition(0.5);
+      editorGrid.addColumnDefinition(1);
+    } else {
+      // Small + landscape: controls on left, preview on right
+      editorGrid.addRowDefinition(1);
+      editorGrid.addColumnDefinition(0.5);
+      editorGrid.addColumnDefinition(0.5);
+    }
   } else {
+    // Large: controls on left, preview on right
     editorGrid.addRowDefinition(1);
     editorGrid.addColumnDefinition(0.4);
     editorGrid.addColumnDefinition(0.6);
@@ -1430,14 +1464,36 @@ export function createLoadoutScene(
   previewArea.background = COLORS.bgPreview;
   previewArea.thickness = 0;
 
-  const previewSize = isMobile ? Math.min(screenWidth * 0.8, screenHeight * 0.3) : screenHeight * 0.7;
+  // Preview size based on layout
+  let previewSize: number;
+  if (isSmallScreen) {
+    if (isEditorPortrait) {
+      // Portrait: preview takes top half, so use half the height
+      previewSize = Math.min(screenWidth * 0.8, screenHeight * 0.45);
+    } else {
+      // Landscape: preview takes right half, so use half the width
+      previewSize = Math.min(screenWidth * 0.45, screenHeight * 0.8);
+    }
+  } else {
+    // Large screen: preview takes right 60%
+    previewSize = Math.min(screenWidth * 0.55, screenHeight * 0.7);
+  }
   editorPreviewImage.width = `${previewSize}px`;
   editorPreviewImage.height = `${previewSize}px`;
   previewArea.addControl(editorPreviewImage);
 
-  if (isMobile) {
-    editorGrid.addControl(previewArea, 0, 0);
+  // Place preview and options based on layout
+  // Preview is always on top (portrait) or right (landscape/large)
+  if (isSmallScreen) {
+    if (isEditorPortrait) {
+      // Small + portrait: preview on top (row 0), options on bottom (row 1)
+      editorGrid.addControl(previewArea, 0, 0);
+    } else {
+      // Small + landscape: preview on right (col 1), options on left (col 0)
+      editorGrid.addControl(previewArea, 0, 1);
+    }
   } else {
+    // Large: preview on right (col 1)
     editorGrid.addControl(previewArea, 0, 1);
   }
 
@@ -1449,9 +1505,16 @@ export function createLoadoutScene(
   optionsScroll.barSize = 8;
   optionsScroll.barColor = COLORS.borderWarm;
 
-  if (isMobile) {
-    editorGrid.addControl(optionsScroll, 1, 0);
+  if (isSmallScreen) {
+    if (isEditorPortrait) {
+      // Small + portrait: options on bottom (row 1)
+      editorGrid.addControl(optionsScroll, 1, 0);
+    } else {
+      // Small + landscape: options on left (col 0)
+      editorGrid.addControl(optionsScroll, 0, 0);
+    }
   } else {
+    // Large: options on left (col 0)
     editorGrid.addControl(optionsScroll, 0, 0);
   }
 
@@ -1866,6 +1929,13 @@ export function createLoadoutScene(
       editorLoadedModelKey = modelKey;
 
       SceneLoader.ImportMeshAsync("", modelPath, "", scene).then((result) => {
+        // Skip if scene was disposed while loading
+        if (sceneDisposed) {
+          result.meshes.forEach(m => m.dispose());
+          result.animationGroups.forEach(ag => ag.dispose());
+          return;
+        }
+
         editorPreviewMesh = result.meshes[0];
         editorPreviewMeshes = result.meshes;
         editorPreviewMesh.position = new Vector3(0, 0, 0);
@@ -1883,6 +1953,7 @@ export function createLoadoutScene(
         editorPreviewAnimations = result.animationGroups;
         updateEditorPreviewAppearance();
       }).catch((error) => {
+        if (sceneDisposed) return; // Ignore errors after disposal
         console.error(`Failed to load editor model: ${modelPath}`, error);
       });
     } else {
