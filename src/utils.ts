@@ -348,11 +348,8 @@ export function enableTouchScroll(
     scrollViewer.barSize = 0;
     scrollViewer.barBackground = "transparent";
     scrollViewer.barColor = "transparent";
-  } else {
-    scrollViewer.barSize = SCROLLBAR_SIZE;
-    scrollViewer.barColor = SCROLLBAR_COLOR;
-    scrollViewer.barBackground = SCROLLBAR_BACKGROUND;
   }
+  // Note: When not hiding, scrollbar styling is handled by the caller
 
   let isDragging = false;
   let lastY = 0;
@@ -769,22 +766,25 @@ export function createResponsiveOverlay(
   scrollViewer.thickness = 0;
   scrollViewer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
   scrollViewer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-  // Scrollbar styling: centralized colors, vertical only
   scrollViewer.barSize = SCROLLBAR_SIZE;
   scrollViewer.barColor = SCROLLBAR_COLOR;
   scrollViewer.barBackground = SCROLLBAR_BACKGROUND;
+  // Hide horizontal scrollbar - Babylon.js GUI has no official API for this.
+  // forceHorizontalBar/forceVerticalBar only force bars ON, not OFF.
+  // horizontalBar.isVisible = false doesn't work (property is ignored).
+  // Must use internal properties to hide the bar space and corner drag space.
+  const sv = scrollViewer as any;
+  if (sv._horizontalBarSpace) sv._horizontalBarSpace.isVisible = false;
+  if (sv._dragSpace) sv._dragSpace.isVisible = false;
   container.addControl(scrollViewer);
-
-  // Hide horizontal scrollbar after adding to container
-  if (scrollViewer.horizontalBar) {
-    scrollViewer.horizontalBar.isVisible = false;
-  }
 
   const contentStack = new StackPanel("contentStack");
   contentStack.width = "100%";
   contentStack.isVertical = true;
   contentStack.paddingTop = "10px";
   contentStack.paddingBottom = "20px";
+  contentStack.clipChildren = true;
+  contentStack.clipContent = true;
   scrollViewer.addControl(contentStack);
 
   const contentText = new TextBlock("content");
@@ -794,6 +794,7 @@ export function createResponsiveOverlay(
   contentText.textWrapping = true;
   contentText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
   contentText.resizeToFit = true;
+  contentText.width = "90%";
   contentText.paddingLeft = "5%";
   contentText.paddingRight = "5%";
   contentStack.addControl(contentText);
