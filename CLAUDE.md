@@ -39,6 +39,7 @@ npx tsc --noEmit # Type check only
     rules.ts            - Movement, LOS, combat, turn system
     commands.ts         - Command pattern for actions
     controllers.ts      - Controller abstraction (Human/AI)
+    replay.ts           - Turn recording types for replay/sync
   /scenes
     /battle             - Visual helpers for BattleScene
       terrain.ts        - Grid terrain generation
@@ -50,7 +51,7 @@ npx tsc --noEmit # Type check only
       ui/*.ts           - UI components (turnOrder, actionButtons, etc.)
       index.ts          - Re-exports all visual helpers
     /loadout            - LoadoutScene helpers
-    BattleScene.ts      - Main battle orchestrator (~5500 lines)
+    BattleScene.ts      - Main battle orchestrator (~5400 lines)
     LoadoutScene.ts     - Loadout screen
     TitleScene.ts       - Title screen
   main.ts               - Entry point, engine setup
@@ -108,7 +109,12 @@ faceClosestEnemy(unit, battleState.units);  // explicit state
 - `createBattleCamera`, `transitionToDramaticCamera`, `transitionFromDramaticCamera`
 - `createHighlightMaterials`, `highlightTile`, `createShadowPreview`
 - `createCoverBorder`, `showCoverPreview`, `updateHazardStripes`
-- UI: `createTurnOrderUI`, `createActionButtonsUI`, `createStatusBar`, `showGameOver`
+- UI: `createTurnOrderUI`, `createActionButtonsUI`, `createStatusBar`, `showGameOver`, `createTutorialOverlay`
+
+**Pure logic replay types** (import from `../battle/replay`):
+- `UnitSnapshot`, `UnitTurnRecord`, `TeamTurnRecord` - serializable for online sync
+- `createTeamTurnRecord()`, `createUnitTurnRecord()` - factory functions
+- `serializeTeamTurnRecord()`, `deserializeTeamTurnRecord()` - for network transmission
 
 ## Architecture Decisions
 
@@ -193,7 +199,7 @@ The How To overlay uses `ScrollViewer` from `@babylonjs/gui` with:
     - `ui/gameOver.ts` - Game over overlay
     - `index.ts` - Re-exports all modules
   - **Architecture**: Pure game logic in `/src/battle/`, visual rendering in `/src/scenes/battle/`
-  - **Current state** (5,173 lines, down from 5,415):
+  - **Current state** (5,442 lines after additional extractions):
     - Animation functions fully migrated (playAnimation, playIdleAnimation, initFacing, setUnitFacing, faceClosestEnemy, faceAverageEnemyPosition)
     - Unit visual functions fully migrated (updateHpBar, setUnitExhausted, setUnitInactive, resetUnitAppearance, applyConcealVisual, removeConcealVisual)
     - Created `/src/scenes/battle/state.ts` with consolidated visual state types (BattleVisualState, HighlightState, etc.)
@@ -240,6 +246,23 @@ The How To overlay uses `ScrollViewer` from `@babylonjs/gui` with:
   - **Melee pathfinding**: New `selectMoveForMelee()` prioritizes tiles from which unit can actually attack
   - **Soldier smarter cover**: Only covers when can't reach combat within remaining actions
   - **No wasted attacks**: Second action re-evaluates targets excluding pending kills
+
+- Extracted tutorial and replay modules
+  - **Tutorial overlay** → `src/scenes/battle/ui/tutorial.ts` (236 lines)
+    - Creates the "How to Play" overlay shown on battle start
+    - Touch-aware: detects device type and shows appropriate controls
+    - Returns controls for programmatic show/hide
+  - **Replay data structures** → `src/battle/replay.ts` (139 lines, pure logic layer)
+    - `UnitSnapshot`, `UnitTurnRecord`, `TeamTurnRecord` types
+    - Factory functions: `createTeamTurnRecord()`, `createUnitTurnRecord()`
+    - Serialization helpers for online sync: `serializeTeamTurnRecord()`, `deserializeTeamTurnRecord()`
+    - **Future online sync**: These structures are network-ready for sending turn data to server
+  - **Replay visual module** → `src/scenes/battle/replay.ts` (197 lines, available but not wired up)
+    - `ReplayContext` interface for dependency injection
+    - `createReplayButton()` for UI creation
+    - Pattern for future decoupling of replay execution
+  - **BattleScene.ts**: 5,442 lines (down from 5,655 before extractions)
+  - **Net reduction**: 213 lines moved to dedicated modules
 
 ### 2026-01-30
 - Added "Quick How To" button and overlay to TitleScene

@@ -184,6 +184,26 @@ export {
 export { showGameOver } from "./ui/gameOver";
 
 // =============================================================================
+// UI - TUTORIAL
+// =============================================================================
+export {
+  createTutorialOverlay,
+  type TutorialOverlay,
+} from "./ui/tutorial";
+
+// =============================================================================
+// REPLAY (visual layer)
+// =============================================================================
+export {
+  createReplayButton,
+  type ReplayContext,
+  type ReplayState,
+  type ReplayButton,
+  type ReplayUnit,
+  type CameraState as ReplayCameraState,
+} from "./replay";
+
+// =============================================================================
 // CONSOLIDATED VISUAL STATE
 // =============================================================================
 export {
