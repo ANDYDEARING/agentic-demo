@@ -191,8 +191,7 @@ void _createTerrain; void _hasTerrainFromSet;
 // Import from loadout constants
 import { BOOST_INFO } from "./loadout/constants";
 
-export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loadout: Loadout | null): Scene {
-  void canvas; // Suppress unused warning during camera experiment (normally used for touch handlers)
+export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, loadout: Loadout | null): Scene {
   const scene = new Scene(engine);
 
   // Disable environment texture to prevent rgbdDecode shader errors
@@ -288,26 +287,24 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   const dirLight = new DirectionalLight("dirLight", new Vector3(-1, -2, -1), scene);
   dirLight.intensity = 0.5;
 
-  // Tile materials
-  // Tile materials - using centralized color config
-  const tileMaterialLight = new StandardMaterial("tileLightMat", scene);
-  tileMaterialLight.diffuseColor = rgbToColor3(TILE_COLOR_LIGHT);
+  // Helper to create matte (non-reflective) tile materials
+  // Specular set to black to prevent white reflections when viewed from above
+  function createMatteMaterial(name: string, color: Color3): StandardMaterial {
+    const mat = new StandardMaterial(name, scene);
+    mat.diffuseColor = color;
+    mat.specularColor = new Color3(0, 0, 0);
+    return mat;
+  }
 
-  const tileMaterialDark = new StandardMaterial("tileDarkMat", scene);
-  tileMaterialDark.diffuseColor = rgbToColor3(TILE_COLOR_DARK);
+  // Tile materials - using centralized color config
+  const tileMaterialLight = createMatteMaterial("tileLightMat", rgbToColor3(TILE_COLOR_LIGHT));
+  const tileMaterialDark = createMatteMaterial("tileDarkMat", rgbToColor3(TILE_COLOR_DARK));
 
   // Highlight materials - using centralized color config
-  const selectedMaterial = new StandardMaterial("selectedMat", scene);
-  selectedMaterial.diffuseColor = rgbToColor3(HIGHLIGHT_SELECTED);
-
-  const validMoveMaterial = new StandardMaterial("validMoveMat", scene);
-  validMoveMaterial.diffuseColor = rgbToColor3(HIGHLIGHT_VALID_MOVE);
-
-  const attackableMaterial = new StandardMaterial("attackableMat", scene);
-  attackableMaterial.diffuseColor = rgbToColor3(HIGHLIGHT_ATTACKABLE);
-
-  const healableMaterial = new StandardMaterial("healableMat", scene);
-  healableMaterial.diffuseColor = rgbToColor3(HIGHLIGHT_HEALABLE);
+  const selectedMaterial = createMatteMaterial("selectedMat", rgbToColor3(HIGHLIGHT_SELECTED));
+  const validMoveMaterial = createMatteMaterial("validMoveMat", rgbToColor3(HIGHLIGHT_VALID_MOVE));
+  const attackableMaterial = createMatteMaterial("attackableMat", rgbToColor3(HIGHLIGHT_ATTACKABLE));
+  const healableMaterial = createMatteMaterial("healableMat", rgbToColor3(HIGHLIGHT_HEALABLE));
 
   const unitMaterials: Record<UnitClass, StandardMaterial> = {
     soldier: createUnitMaterial("soldier", new Color3(0.3, 0.3, 0.8), scene),
@@ -543,9 +540,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
   // Create terrain cube meshes
   // Terrain material - using centralized color config
-  const terrainMaterial = new StandardMaterial("terrainMat", scene);
-  terrainMaterial.diffuseColor = rgbToColor3(TERRAIN_COLOR);
-  terrainMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
+  const terrainMaterial = createMatteMaterial("terrainMat", rgbToColor3(TERRAIN_COLOR));
 
   const tileTopY = 0.05;  // Top surface of tiles (tiles are height 0.1 centered at Y=0)
   const terrainHeight = TILE_SIZE - TILE_GAP;
@@ -921,8 +916,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
   // LOS-blocked material (gray for blocked targets)
   // Blocked tile material (no LOS) - using centralized color config
-  const blockedMaterial = new StandardMaterial("blockedMat", scene);
-  blockedMaterial.diffuseColor = rgbToColor3(HIGHLIGHT_BLOCKED);
+  const blockedMaterial = createMatteMaterial("blockedMat", rgbToColor3(HIGHLIGHT_BLOCKED));
 
 
   // ============================================
@@ -3701,9 +3695,6 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     camera.beta = savedCameraBeta;
     camera.radius = savedCameraRadius;
     camera.target = savedCameraTarget;
-    targetRadius = savedCameraRadius;
-    targetCameraX = savedCameraTarget.x;
-    targetCameraZ = savedCameraTarget.z;
 
     isReplaying = false;
     updateReplayButtonVisibility();
@@ -3827,128 +3818,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     replayPreviousTurn();
   });
 
-  // ==========================================================================
-  // CUSTOM CAMERA CONTROLS - COMMENTED OUT FOR EXPERIMENT
-  // Testing Babylon.js default ArcRotateCamera behavior
-  // ==========================================================================
-
-  // Variables still needed for replay restore (suppress unused warnings)
-  let targetRadius = camera.radius; void targetRadius;
-  let targetCameraX = camera.target.x; void targetCameraX;
-  let targetCameraZ = camera.target.z; void targetCameraZ;
-
-  // Camera target bounds (keep the grid visible) - kept for reference
-  const gridHalfSize = (GRID_SIZE / 2) * (TILE_SIZE + TILE_GAP);
-  const TARGET_BOUNDS = {
-    minX: -gridHalfSize - 2,
-    maxX: gridHalfSize + 2,
-    minZ: -gridHalfSize - 2,
-    maxZ: gridHalfSize + 2,
-  };
-  void TARGET_BOUNDS; // Suppress unused warning during experiment
-
-  /*
-  // Two-finger touch handling: pinch-to-zoom and pan
-  // Uses smooth interpolation for fluid movement on touch devices
-  let initialPinchDistance = 0;
-  let initialRadius = camera.radius;
-  let lastTouchCenterX = 0;
-  let lastTouchCenterY = 0;
-  const ZOOM_SMOOTH_FACTOR = 0.15; // How quickly to approach target (0-1, higher = faster)
-  const PAN_SPEED = 0.03; // Pan sensitivity
-
-  // Smooth zoom and target interpolation each frame
-  scene.onBeforeRenderObservable.add(() => {
-    // Smooth zoom
-    const zoomDiff = targetRadius - camera.radius;
-    if (Math.abs(zoomDiff) > 0.01) {
-      camera.radius += zoomDiff * ZOOM_SMOOTH_FACTOR;
-    }
-    // Smooth pan
-    const panDiffX = targetCameraX - camera.target.x;
-    const panDiffZ = targetCameraZ - camera.target.z;
-    if (Math.abs(panDiffX) > 0.01 || Math.abs(panDiffZ) > 0.01) {
-      camera.target.x += panDiffX * ZOOM_SMOOTH_FACTOR;
-      camera.target.z += panDiffZ * ZOOM_SMOOTH_FACTOR;
-    }
-  });
-
-  const handleTouchStart = (e: TouchEvent) => {
-    if (e.touches.length === 2) {
-      // Two fingers down - start pinch/pan
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      initialPinchDistance = Math.sqrt(dx * dx + dy * dy);
-      initialRadius = camera.radius;
-      targetRadius = camera.radius;
-      // Track center for panning
-      lastTouchCenterX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-      lastTouchCenterY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-    }
-  };
-
-  const handleTouchMove = (e: TouchEvent) => {
-    if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const currentDistance = Math.sqrt(dx * dx + dy * dy);
-
-      // Pinch-to-zoom
-      if (initialPinchDistance > 0) {
-        const scale = initialPinchDistance / currentDistance;
-        let newRadius = initialRadius * scale;
-
-        // Clamp to camera limits
-        const minRadius = camera.lowerRadiusLimit || 5;
-        const maxRadius = camera.upperRadiusLimit || 50;
-        newRadius = Math.max(minRadius, Math.min(maxRadius, newRadius));
-
-        // Set target - smooth interpolation happens in render loop
-        targetRadius = newRadius;
-      }
-
-      // Two-finger pan (move center point)
-      const centerX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-      const centerY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-      const panDeltaX = centerX - lastTouchCenterX;
-      const panDeltaY = centerY - lastTouchCenterY;
-      lastTouchCenterX = centerX;
-      lastTouchCenterY = centerY;
-
-      // Calculate pan direction based on camera angle
-      const cosAlpha = Math.cos(camera.alpha);
-      const sinAlpha = Math.sin(camera.alpha);
-
-      // Move camera target (panning) - clamp to bounds
-      const newTargetX = targetCameraX - (panDeltaX * cosAlpha + panDeltaY * sinAlpha) * PAN_SPEED;
-      const newTargetZ = targetCameraZ - (-panDeltaX * sinAlpha + panDeltaY * cosAlpha) * PAN_SPEED;
-
-      targetCameraX = Math.max(TARGET_BOUNDS.minX, Math.min(TARGET_BOUNDS.maxX, newTargetX));
-      targetCameraZ = Math.max(TARGET_BOUNDS.minZ, Math.min(TARGET_BOUNDS.maxZ, newTargetZ));
-
-      e.preventDefault(); // Prevent page zoom/scroll
-    }
-  };
-
-  const handleTouchEnd = (e: TouchEvent) => {
-    if (e.touches.length < 2) {
-      initialPinchDistance = 0;
-    }
-  };
-
-  canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
-  canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
-  canvas.addEventListener("touchend", handleTouchEnd);
-  */
-
-  // Clean up camera animation on scene dispose
+  // Clean up dramatic camera animation on scene dispose
   scene.onDisposeObservable.add(() => {
-    /*
-    canvas.removeEventListener("touchstart", handleTouchStart);
-    canvas.removeEventListener("touchmove", handleTouchMove);
-    canvas.removeEventListener("touchend", handleTouchEnd);
-    */
-    // Cancel any ongoing dramatic camera animation
     if (dramaticCameraAnimationId !== null) {
       cancelAnimationFrame(dramaticCameraAnimationId);
       dramaticCameraAnimationId = null;
