@@ -3622,7 +3622,6 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
   // Replay the previous team's turn with full state reset and re-execution
   // This executes through the exact same logic as normal gameplay for accurate replay
-  // TODO: Fix replay system error - flagged for later investigation
   async function replayPreviousTurn(): Promise<void> {
     if (!previousTeamTurnRecord || isReplaying || gameOver) return;
     if (!previousTeamTurnRecord.unitSnapshots || previousTeamTurnRecord.unitSnapshots.length === 0) {

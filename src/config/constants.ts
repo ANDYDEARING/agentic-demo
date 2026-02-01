@@ -157,18 +157,6 @@ export const ACCUMULATOR_THRESHOLD = 10;
 /** Speed bonus granted per unused action (encourages ending turn early) */
 export const SPEED_BONUS_PER_UNUSED_ACTION = 0.25;
 
-/**
- * @deprecated Use WEAPON_DATA.sword.damageMultiplier from balance.ts instead.
- * Kept for backwards compatibility.
- */
-export const MELEE_DAMAGE_MULTIPLIER = 2;
-
-/**
- * @deprecated Use BOOST_DATA from balance.ts instead - each boost has its own multiplier.
- * Kept for backwards compatibility.
- */
-export const BOOST_MULTIPLIER = 0.25;
-
 // =============================================================================
 // HP BAR THRESHOLDS
 // =============================================================================
