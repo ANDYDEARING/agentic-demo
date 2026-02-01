@@ -184,14 +184,20 @@ import {
   resetUnitAppearance,
   applyConcealVisual,
   removeConcealVisual,
+  // Tutorial overlay
+  createTutorialOverlay,
 } from "./battle";
+
+// Import pure replay data structures (for online sync compatibility)
+// Types are from pure logic layer - serializable for network/persistence
+import type { UnitSnapshot, TeamTurnRecord, UnitTurnRecord } from "../battle/replay";
 // Suppress unused import warnings (these are available for future migration)
 void _createTerrain; void _hasTerrainFromSet;
 
 // Import from loadout constants
 import { BOOST_INFO } from "./loadout/constants";
 
-export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loadout: Loadout | null): Scene {
+export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, loadout: Loadout | null): Scene {
   const scene = new Scene(engine);
 
   // Disable environment texture to prevent rgbdDecode shader errors
@@ -255,8 +261,11 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     coverDown: new Audio(SFX.coverDown),
     speedUp: new Audio(SFX.speedUp),
   };
-  // Set volume for all sound effects
-  Object.values(sfx).forEach(sound => sound.volume = AUDIO_VOLUMES.sfx);
+  // Set volume for all sound effects and preload them
+  Object.values(sfx).forEach(sound => {
+    sound.volume = AUDIO_VOLUMES.sfx;
+    sound.load(); // Preload to ensure sounds play on first use
+  });
   // Boost quieter effects
   sfx.concealUp.volume = Math.min(1, AUDIO_VOLUMES.sfx * 1.5);
   sfx.concealDown.volume = Math.min(1, AUDIO_VOLUMES.sfx * 1.5);
@@ -273,8 +282,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     new Vector3(0, 0, 0),
     scene
   );
-  // Camera controls will be attached by updateCameraModeButton() when toggle is initialized
-  // Don't attach here to avoid interfering with GUI clicks before toggle is ready
+  // Camera controls will be attached after GUI is initialized
+  camera.attachControl(true);
   camera.lowerBetaLimit = BATTLE_CAMERA_LOWER_BETA_LIMIT;
   camera.upperBetaLimit = BATTLE_CAMERA_UPPER_BETA_LIMIT;
   camera.lowerRadiusLimit = BATTLE_CAMERA_LOWER_RADIUS_LIMIT;
@@ -284,26 +293,24 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   const dirLight = new DirectionalLight("dirLight", new Vector3(-1, -2, -1), scene);
   dirLight.intensity = 0.5;
 
-  // Tile materials
-  // Tile materials - using centralized color config
-  const tileMaterialLight = new StandardMaterial("tileLightMat", scene);
-  tileMaterialLight.diffuseColor = rgbToColor3(TILE_COLOR_LIGHT);
+  // Helper to create matte (non-reflective) tile materials
+  // Specular set to black to prevent white reflections when viewed from above
+  function createMatteMaterial(name: string, color: Color3): StandardMaterial {
+    const mat = new StandardMaterial(name, scene);
+    mat.diffuseColor = color;
+    mat.specularColor = new Color3(0, 0, 0);
+    return mat;
+  }
 
-  const tileMaterialDark = new StandardMaterial("tileDarkMat", scene);
-  tileMaterialDark.diffuseColor = rgbToColor3(TILE_COLOR_DARK);
+  // Tile materials - using centralized color config
+  const tileMaterialLight = createMatteMaterial("tileLightMat", rgbToColor3(TILE_COLOR_LIGHT));
+  const tileMaterialDark = createMatteMaterial("tileDarkMat", rgbToColor3(TILE_COLOR_DARK));
 
   // Highlight materials - using centralized color config
-  const selectedMaterial = new StandardMaterial("selectedMat", scene);
-  selectedMaterial.diffuseColor = rgbToColor3(HIGHLIGHT_SELECTED);
-
-  const validMoveMaterial = new StandardMaterial("validMoveMat", scene);
-  validMoveMaterial.diffuseColor = rgbToColor3(HIGHLIGHT_VALID_MOVE);
-
-  const attackableMaterial = new StandardMaterial("attackableMat", scene);
-  attackableMaterial.diffuseColor = rgbToColor3(HIGHLIGHT_ATTACKABLE);
-
-  const healableMaterial = new StandardMaterial("healableMat", scene);
-  healableMaterial.diffuseColor = rgbToColor3(HIGHLIGHT_HEALABLE);
+  const selectedMaterial = createMatteMaterial("selectedMat", rgbToColor3(HIGHLIGHT_SELECTED));
+  const validMoveMaterial = createMatteMaterial("validMoveMat", rgbToColor3(HIGHLIGHT_VALID_MOVE));
+  const attackableMaterial = createMatteMaterial("attackableMat", rgbToColor3(HIGHLIGHT_ATTACKABLE));
+  const healableMaterial = createMatteMaterial("healableMat", rgbToColor3(HIGHLIGHT_HEALABLE));
 
   const unitMaterials: Record<UnitClass, StandardMaterial> = {
     soldier: createUnitMaterial("soldier", new Color3(0.3, 0.3, 0.8), scene),
@@ -539,9 +546,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
   // Create terrain cube meshes
   // Terrain material - using centralized color config
-  const terrainMaterial = new StandardMaterial("terrainMat", scene);
-  terrainMaterial.diffuseColor = rgbToColor3(TERRAIN_COLOR);
-  terrainMaterial.specularColor = new Color3(0.1, 0.1, 0.1);
+  const terrainMaterial = createMatteMaterial("terrainMat", rgbToColor3(TERRAIN_COLOR));
 
   const tileTopY = 0.05;  // Top surface of tiles (tiles are height 0.1 centered at Y=0)
   const terrainHeight = TILE_SIZE - TILE_GAP;
@@ -629,6 +634,30 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   // GUI - ensure it captures pointer events before the scene
   const gui = AdvancedDynamicTexture.CreateFullscreenUI("UI");
   gui.isForeground = true;
+
+  // Screen border - shows current team color (updated on turn change and game over)
+  const screenBorder = new Rectangle("screenBorder");
+  screenBorder.width = "100%";
+  screenBorder.height = "100%";
+  screenBorder.thickness = 4;
+  screenBorder.color = "#444444"; // Default gray, updated when game starts
+  screenBorder.background = "transparent";
+  screenBorder.isHitTestVisible = false;
+  screenBorder.zIndex = 100; // Above most UI elements
+  gui.addControl(screenBorder);
+
+  function updateScreenBorderColor(color: Color3): void {
+    const r = Math.round(color.r * 255).toString(16).padStart(2, '0');
+    const g = Math.round(color.g * 255).toString(16).padStart(2, '0');
+    const b = Math.round(color.b * 255).toString(16).padStart(2, '0');
+    screenBorder.color = `#${r}${g}${b}`;
+  }
+
+  // ============================================
+  // TUTORIAL OVERLAY (extracted to ./battle/ui/tutorial.ts)
+  // ============================================
+  const _tutorialOverlay = createTutorialOverlay(gui);
+  void _tutorialOverlay; // Available for programmatic show/hide if needed
 
   // Units
   const units: Unit[] = [];
@@ -899,8 +928,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
   // LOS-blocked material (gray for blocked targets)
   // Blocked tile material (no LOS) - using centralized color config
-  const blockedMaterial = new StandardMaterial("blockedMat", scene);
-  blockedMaterial.diffuseColor = rgbToColor3(HIGHLIGHT_BLOCKED);
+  const blockedMaterial = createMatteMaterial("blockedMat", rgbToColor3(HIGHLIGHT_BLOCKED));
 
 
   // ============================================
@@ -1253,8 +1281,99 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   // Initiative system - ACCUMULATOR_THRESHOLD imported from config
   let currentUnit: Unit | null = null;
   let lastActingTeam: Team | null = null;
+  let lastPlayerTurnTeam: Team | null = null; // For "Player X Turn" messages
   let isFirstRound = true;
   let firstRoundQueue: Unit[] = [];
+
+  // ============================================
+  // TURN HISTORY (for replay and online sync)
+  // ============================================
+  // Types (UnitSnapshot, UnitTurnRecord, TeamTurnRecord) imported from ../battle/replay.ts
+  // These are pure data structures designed for network serialization.
+
+  // Current team's turn being recorded
+  let currentTeamTurnRecord: TeamTurnRecord | null = null;
+  // Current unit's turn being recorded
+  let currentUnitTurnRecord: UnitTurnRecord | null = null;
+  // Previous team's complete turn (for replay)
+  let previousTeamTurnRecord: TeamTurnRecord | null = null;
+  // Whether replay is currently playing
+  let isReplaying = false;
+
+  /** Create a snapshot of all living units */
+  function createUnitSnapshots(): UnitSnapshot[] {
+    return units.filter(u => u.hp > 0).map(u => ({
+      unitId: getUnitId(u),
+      gridX: u.gridX,
+      gridZ: u.gridZ,
+      hp: u.hp,
+      isConcealed: u.isConcealed,
+      isCovering: u.isCovering,
+      facingAngle: u.facing.currentAngle,
+    }));
+  }
+
+  /** Restore units to a snapshot state (visual + logical) */
+  function restoreFromSnapshots(snapshots: UnitSnapshot[]): void {
+    for (const snapshot of snapshots) {
+      const unit = findUnitById(snapshot.unitId);
+      if (!unit) continue;
+
+      // Restore logical state
+      unit.gridX = snapshot.gridX;
+      unit.gridZ = snapshot.gridZ;
+      unit.hp = snapshot.hp;
+      unit.isConcealed = snapshot.isConcealed;
+      unit.isCovering = snapshot.isCovering;
+      unit.facing.currentAngle = snapshot.facingAngle;
+
+      // Restore visual position
+      const worldX = snapshot.gridX * TILE_SIZE - gridOffset;
+      const worldZ = snapshot.gridZ * TILE_SIZE - gridOffset;
+      if (unit.modelRoot) {
+        unit.modelRoot.position.x = worldX;
+        unit.modelRoot.position.z = worldZ;
+        unit.modelRoot.rotationQuaternion = null;
+        unit.modelRoot.rotation.y = snapshot.facingAngle + unit.facing.baseOffset;
+      }
+      unit.mesh.position.x = worldX;
+      unit.mesh.position.z = worldZ;
+
+      // Restore visuals
+      updateHpBar(unit);
+      if (snapshot.isConcealed) {
+        applyConcealVisual(unit);
+      } else {
+        removeConcealVisual(unit);
+      }
+    }
+
+    // Clear and rebuild cover visualizations
+    for (const u of units) {
+      clearCoverTilesForUnit(u);
+      clearCoverVisualizationForUnit(u);
+    }
+    for (const unit of units) {
+      if (unit.isCovering && unit.hp > 0) {
+        // Recalculate and show cover tiles
+        const isMelee = unit.customization?.combatStyle === "melee";
+        let coveredTiles: { x: number; z: number }[];
+        if (isMelee) {
+          coveredTiles = getAdjacentTiles(unit.gridX, unit.gridZ).filter(tile => {
+            const isDiagonal = tile.x !== unit.gridX && tile.z !== unit.gridZ;
+            return !isDiagonal || hasLineOfSight(unit.gridX, unit.gridZ, tile.x, tile.z, unit);
+          });
+        } else {
+          coveredTiles = getTilesInLOS(unit.gridX, unit.gridZ, true, unit);
+        }
+        setCoverTiles(unit, coveredTiles);
+        for (const { x, z } of coveredTiles) {
+          createCoverBorder(unit, x, z, unit.teamColor);
+        }
+      }
+    }
+    updateHazardStripes();
+  }
 
   // Active unit corner indicators
   let cornerMeshes: Mesh[] = [];
@@ -1439,6 +1558,35 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     // Create pulsing corner indicators for active unit
     createCornerIndicators(unit);
 
+    // Update screen border to current team's color
+    updateScreenBorderColor(unit.teamColor);
+
+    // Show player turn message when team changes (or at game start)
+    if (unit.team !== lastPlayerTurnTeam) {
+      const teamName = getTeamDisplayName(unit.team);
+      showBattleMessage(`${teamName} Turn`, unit.teamColor);
+
+      // Save previous team's turn record for replay (if exists)
+      if (currentTeamTurnRecord && currentTeamTurnRecord.unitTurns.length > 0) {
+        previousTeamTurnRecord = currentTeamTurnRecord;
+      }
+      // Start new team turn record with snapshot of current state
+      currentTeamTurnRecord = {
+        team: unit.team,
+        unitTurns: [],
+        unitSnapshots: createUnitSnapshots(),
+      };
+
+      lastPlayerTurnTeam = unit.team;
+    }
+
+    // Start recording this unit's turn
+    currentUnitTurnRecord = {
+      unitId: getUnitId(unit),
+      startPosition: { x: unit.gridX, z: unit.gridZ },
+      commands: [],
+    };
+
     // Clear command queue for new turn
     commandQueue.clear();
 
@@ -1468,6 +1616,12 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   function endCurrentUnitTurn(): void {
     const unit = currentUnit;
     if (!unit) return;
+
+    // Save unit's turn record to team record (for replay)
+    if (currentUnitTurnRecord && currentUnitTurnRecord.commands.length > 0 && currentTeamTurnRecord) {
+      currentTeamTurnRecord.unitTurns.push(currentUnitTurnRecord);
+    }
+    currentUnitTurnRecord = null;
 
     // Calculate speed bonus based on unused actions (using centralized constant)
     const unusedActions = turnState?.actionsRemaining ?? 0;
@@ -2262,15 +2416,19 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   }
 
   function showGameOver(winningColor: Color3, winnerName: string): void {
+    // Update screen border to winner's color
+    updateScreenBorderColor(winningColor);
+
     const overlay = new Rectangle();
     overlay.width = "100%";
     overlay.height = "100%";
+    overlay.thickness = 0; // No border on overlay (screen border handles it)
     overlay.background = "rgba(0,0,0,0.7)";
     gui.addControl(overlay);
 
     const container = new StackPanel();
     container.width = screenWidth < BREAKPOINT_SMALL_MOBILE ? "95%" : "600px";
-    container.height = "200px";
+    container.height = "250px";
     overlay.addControl(container);
 
     // Convert Color3 to hex
@@ -2280,12 +2438,14 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     const colorHex = `#${r}${g}${b}`;
 
     const text = new TextBlock();
-    text.text = `${winnerName} Wins!`;
+    text.text = `${winnerName}\nWins!`;
     text.color = colorHex;
     text.fontSize = screenWidth < BREAKPOINT_SMALL_MOBILE ? 48 : 72;
     text.width = "100%";
-    text.height = "100px";
+    text.height = "150px";
     text.fontWeight = "bold";
+    text.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    text.textWrapping = true;
     container.addControl(text);
 
     // Back to loadout button
@@ -2520,6 +2680,25 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     const unit = turnState.unit;
     const actions = [...turnState.pendingActions];
 
+    // Record commands for replay (convert visual actions to serializable commands)
+    if (currentUnitTurnRecord && !isReplaying) {
+      for (const action of actions) {
+        if (action.type === "move" && action.targetX !== undefined && action.targetZ !== undefined) {
+          currentUnitTurnRecord.commands.push(createMoveCommand(action.targetX, action.targetZ));
+        } else if (action.type === "attack" && action.targetUnit) {
+          currentUnitTurnRecord.commands.push(createAttackCommand(getUnitId(action.targetUnit)));
+        } else if (action.type === "ability") {
+          if (action.abilityName === "heal" && action.targetUnit) {
+            currentUnitTurnRecord.commands.push(createHealCommand(getUnitId(action.targetUnit)));
+          } else if (action.abilityName === "conceal") {
+            currentUnitTurnRecord.commands.push(createConcealCommand());
+          } else if (action.abilityName === "cover") {
+            currentUnitTurnRecord.commands.push(createCoverCommand());
+          }
+        }
+      }
+    }
+
     // Note: This uses inline action processing for visual animations.
     // For headless simulation, use: processCommandQueue(commandQueue, commandExecutor);
 
@@ -2652,6 +2831,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   // Execute attack (called during execution phase)
   // Now includes dramatic camera transition for cinematic effect
   // skipCameraOut: if true, don't transition camera out (next action has same target)
+  // replayOnly: if true, only play visuals/sounds/camera - skip all state changes
   function executeAttack(attacker: Unit, defender: Unit, onComplete: () => void, skipCameraOut = false): void {
     // Helper to finish the action (with or without camera transition)
     const finishAction = () => {
@@ -2735,21 +2915,27 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
           playSfx(sfx.death);
 
           playAnimation(defender, "Death", false, () => {
-            defender.mesh.dispose();
-            if (defender.hpBar) defender.hpBar.dispose();
-            if (defender.hpBarBg) defender.hpBarBg.dispose();
-            if (defender.designationLabel) defender.designationLabel.dispose();
-            if (defender.modelRoot) defender.modelRoot.dispose();
-            if (defender.animationGroups) defender.animationGroups.forEach(ag => ag.dispose());
+            // During replay, don't dispose meshes - we'll restore state after
+            if (!isReplaying) {
+              defender.mesh.dispose();
+              if (defender.hpBar) defender.hpBar.dispose();
+              if (defender.hpBarBg) defender.hpBarBg.dispose();
+              if (defender.designationLabel) defender.designationLabel.dispose();
+              if (defender.modelRoot) defender.modelRoot.dispose();
+              if (defender.animationGroups) defender.animationGroups.forEach(ag => ag.dispose());
+            }
             finishAction();
           });
 
-          const index = units.indexOf(defender);
-          if (index > -1) units.splice(index, 1);
-          const queueIndex = firstRoundQueue.indexOf(defender);
-          if (queueIndex > -1) firstRoundQueue.splice(queueIndex, 1);
+          // During replay, don't modify game state arrays
+          if (!isReplaying) {
+            const index = units.indexOf(defender);
+            if (index > -1) units.splice(index, 1);
+            const queueIndex = firstRoundQueue.indexOf(defender);
+            if (queueIndex > -1) firstRoundQueue.splice(queueIndex, 1);
 
-          checkWinCondition();
+            checkWinCondition();
+          }
         } else {
           playAnimation(defender, "HitRecieve", false, () => {
             playIdleAnimation(defender);
@@ -2779,18 +2965,19 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         setUnitFacing(healer, target.gridX, target.gridZ);
       }
 
+      // Apply HP change (will be restored after replay if isReplaying)
       const healedAmount = Math.min(healer.healAmount, target.maxHp - target.hp);
       target.hp += healedAmount;
       console.log(`${healer.team} ${healer.unitClass} heals ${target.team} ${target.unitClass} for ${healedAmount} HP! (${target.hp}/${target.maxHp} HP)`);
-      showBattleMessage("Heal!", healer.teamColor);
-
-      playSfx(sfx.heal);
       updateHpBar(target);
 
       // Update status bar if current unit's HP changed
-      if (target === currentUnit) {
+      if (target === currentUnit && !isReplaying) {
         updateCurrentUnitStatusBar();
       }
+
+      showBattleMessage("Heal!", healer.teamColor);
+      playSfx(sfx.heal);
 
       if (healer.modelMeshes) {
         const weaponMeshes = healer.modelMeshes.filter(m =>
@@ -2826,8 +3013,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
         }, DRAMATIC_CAMERA_HOLD_MS);
       }
     };
-    // Always turn conceal ON (never toggle off)
-    if (unit.isConcealed) {
+    // Always turn conceal ON (never toggle off) - during replay state will be restored after
+    if (unit.isConcealed && !isReplaying) {
       console.log(`${unit.team} ${unit.unitClass} is already Concealed.`);
       onComplete();
       return;
@@ -2835,6 +3022,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
     // Dramatic camera for self-targeting ability
     transitionToDramaticCamera(unit.gridX, unit.gridZ, unit.gridX, unit.gridZ).then(() => {
+      // Apply state change (will be restored after replay if isReplaying)
       unit.isConcealed = true;
       applyConcealVisual(unit);
       console.log(`${unit.team} ${unit.unitClass} activates Conceal!`);
@@ -2883,6 +3071,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
     // Dramatic camera for self-targeting ability
     transitionToDramaticCamera(unit.gridX, unit.gridZ, unit.gridX, unit.gridZ).then(() => {
+      // Apply state changes (will be restored after replay if isReplaying)
       unit.isCovering = !unit.isCovering;
 
       // Clear existing cover for this unit only
@@ -3179,14 +3368,10 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   // Turn indicator removed - all info now in command menu popup
 
   // ============================================
-  // CAMERA MODE TOGGLE (compass button)
+  // CAMERA STATE
   // ============================================
-  let cameraMode: "rotate" | "pan" = "rotate";
-
-  // Custom panning state
-  let isPanning = false;
-  let lastPanX = 0;
-  let lastPanY = 0;
+  // Camera is always in rotate mode for single-touch
+  // Two-finger gestures handle pan (translation) and pinch-to-zoom automatically
 
   // ============================================
   // DRAMATIC CAMERA SYSTEM
@@ -3398,10 +3583,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
           camera.upperRadiusLimit = savedUpperLimit;
           savedCameraState = null;
 
-          // Re-enable camera controls based on current mode
-          if (cameraMode === "rotate") {
-            camera.attachControl(true);
-          }
+          // Re-enable camera controls
+          camera.attachControl(true);
 
           resolve();
         }
@@ -3411,142 +3594,227 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     });
   }
 
-  // Compass button - top right, toggles pan mode
-  const compassBtn = Button.CreateSimpleButton("compassBtn", "");
-  compassBtn.width = "44px";
-  compassBtn.height = "44px";
-  compassBtn.background = "rgba(40, 40, 50, 0.9)";
-  compassBtn.cornerRadius = 22;
-  compassBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-  compassBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-  compassBtn.left = "-15px";
-  compassBtn.top = "15px";
-  compassBtn.thickness = 2;
-  compassBtn.color = "#666666";
-  compassBtn.zIndex = 50;
-  compassBtn.isPointerBlocker = true;
+  // Replay button - top right, replays previous team's turn
+  const replayBtn = Button.CreateSimpleButton("replayBtn", "");
+  replayBtn.width = "44px";
+  replayBtn.height = "44px";
+  replayBtn.background = "rgba(40, 40, 50, 0.9)";
+  replayBtn.cornerRadius = 22;
+  replayBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+  replayBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+  replayBtn.left = "-15px";
+  replayBtn.top = "15px";
+  replayBtn.thickness = 2;
+  replayBtn.color = "#666666";
+  replayBtn.zIndex = 50;
+  replayBtn.isPointerBlocker = true;
+  replayBtn.isVisible = false; // Hidden until there's a turn to replay
 
-  const compassIcon = new TextBlock("compassIcon", "✥");
-  compassIcon.fontSize = 20;
-  compassIcon.color = "#888888";
-  compassIcon.isHitTestVisible = false;
-  compassBtn.addControl(compassIcon);
+  const replayIcon = new TextBlock("replayIcon", "↺");
+  replayIcon.fontSize = 24;
+  replayIcon.color = "#888888";
+  replayIcon.isHitTestVisible = false;
+  replayBtn.addControl(replayIcon);
 
-  function updateCameraModeButton(): void {
-    if (cameraMode === "rotate") {
-      // Gray when inactive (rotate mode)
-      compassBtn.background = "rgba(40, 40, 50, 0.9)";
-      compassBtn.color = "#666666";
-      compassIcon.color = "#888888";
-      // Re-enable camera's built-in rotation controls
-      camera.attachControl(true);
-    } else {
-      // Yellow when active (pan mode)
-      compassBtn.background = "rgba(60, 50, 20, 0.9)";
-      compassBtn.color = "#ffcc44";
-      compassIcon.color = "#ffcc44";
-      // Detach camera controls - we'll handle panning manually
-      camera.detachControl();
+  function updateReplayButtonVisibility(): void {
+    // Show replay button only when there's a previous turn to replay and not currently replaying
+    replayBtn.isVisible = previousTeamTurnRecord !== null && !isReplaying && !gameOver;
+    if (replayBtn.isVisible) {
+      // Color based on previous team
+      const teamColor = previousTeamTurnRecord!.team === "player1" ? player1TeamColor : player2TeamColor;
+      const r = Math.round(teamColor.r * 255).toString(16).padStart(2, '0');
+      const g = Math.round(teamColor.g * 255).toString(16).padStart(2, '0');
+      const b = Math.round(teamColor.b * 255).toString(16).padStart(2, '0');
+      const colorHex = `#${r}${g}${b}`;
+      replayIcon.color = colorHex;
+      replayBtn.color = colorHex;
     }
   }
 
-  compassBtn.onPointerUpObservable.add(() => {
-    // Toggle between rotate and pan
-    cameraMode = cameraMode === "rotate" ? "pan" : "rotate";
-    updateCameraModeButton();
-  });
+  // Replay the previous team's turn with full state reset and re-execution
+  // This executes through the exact same logic as normal gameplay for accurate replay
+  async function replayPreviousTurn(): Promise<void> {
+    if (!previousTeamTurnRecord || isReplaying || gameOver) return;
+    if (!previousTeamTurnRecord.unitSnapshots || previousTeamTurnRecord.unitSnapshots.length === 0) {
+      console.warn("Cannot replay: no snapshots available for previous turn");
+      return;
+    }
 
-  // Custom pan handling when in pan mode
-  scene.onPointerObservable.add((pointerInfo) => {
-    if (cameraMode !== "pan") return;
+    isReplaying = true;
+    replayBtn.isVisible = false;
 
-    switch (pointerInfo.type) {
-      case PointerEventTypes.POINTERDOWN:
-        isPanning = true;
-        lastPanX = pointerInfo.event.clientX;
-        lastPanY = pointerInfo.event.clientY;
-        break;
-      case PointerEventTypes.POINTERUP:
-        isPanning = false;
-        break;
-      case PointerEventTypes.POINTERMOVE:
-        if (isPanning) {
-          const deltaX = pointerInfo.event.clientX - lastPanX;
-          const deltaY = pointerInfo.event.clientY - lastPanY;
-          lastPanX = pointerInfo.event.clientX;
-          lastPanY = pointerInfo.event.clientY;
+    // 1. Save current state to restore after replay
+    const currentStateSnapshot = createUnitSnapshots();
+    const savedCameraAlpha = camera.alpha;
+    const savedCameraBeta = camera.beta;
+    const savedCameraRadius = camera.radius;
+    const savedCameraTarget = camera.target.clone();
 
-          // Calculate pan direction based on camera angle
-          const panSpeed = 0.05;
-          const cosAlpha = Math.cos(camera.alpha);
-          const sinAlpha = Math.sin(camera.alpha);
+    // Show "Replaying..." message
+    const prevTeamName = getTeamDisplayName(previousTeamTurnRecord.team);
+    const prevTeamColor = previousTeamTurnRecord.team === "player1" ? player1TeamColor : player2TeamColor;
+    showBattleMessage(`Replaying ${prevTeamName}...`, prevTeamColor);
 
-          // Move camera target (panning) - drag direction matches movement
-          camera.target.x += (deltaX * cosAlpha + deltaY * sinAlpha) * panSpeed;
-          camera.target.z += (-deltaX * sinAlpha + deltaY * cosAlpha) * panSpeed;
+    // Brief pause before starting replay
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // 2. Restore to state at start of previous team's turn
+    restoreFromSnapshots(previousTeamTurnRecord.unitSnapshots);
+
+    // 3. Execute each unit's turn through the normal execution flow
+    for (const unitTurn of previousTeamTurnRecord.unitTurns) {
+      const unit = findUnitById(unitTurn.unitId);
+      if (!unit) continue;
+
+      // Convert commands to visual action format used by executeQueuedActions
+      await executeUnitTurnForReplay(unit, unitTurn.commands);
+
+      // Brief pause between units
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    // 4. Restore to current state after replay
+    restoreFromSnapshots(currentStateSnapshot);
+
+    // Restore camera
+    camera.alpha = savedCameraAlpha;
+    camera.beta = savedCameraBeta;
+    camera.radius = savedCameraRadius;
+    camera.target = savedCameraTarget;
+
+    isReplaying = false;
+    updateReplayButtonVisibility();
+  }
+
+  // Execute a unit's commands for replay, using the same logic as normal gameplay
+  // This includes camera optimization (staying zoomed for same target)
+  function executeUnitTurnForReplay(unit: Unit, commands: BattleCommand[]): Promise<void> {
+    return new Promise(resolve => {
+      if (commands.length === 0) {
+        resolve();
+        return;
+      }
+
+      // Track unit position through replay for proper camera targeting
+      let currentX = unit.gridX;
+      let currentZ = unit.gridZ;
+
+      // Helper to get camera target key (same as in executeQueuedActions)
+      function getCameraTargetKey(cmd: BattleCommand): string | null {
+        if (cmd.type === "attack") {
+          const target = findUnitById(cmd.targetUnitId);
+          if (target) return `${currentX},${currentZ}->${target.gridX},${target.gridZ}`;
+        } else if (cmd.type === "heal") {
+          const target = findUnitById(cmd.targetUnitId);
+          if (target) return `${currentX},${currentZ}->${target.gridX},${target.gridZ}`;
+        } else if (cmd.type === "conceal" || cmd.type === "cover") {
+          return `${currentX},${currentZ}->${currentX},${currentZ}`;
         }
-        break;
-    }
+        return null;
+      }
+
+      // Check if camera should transition out after this command
+      function shouldTransitionOutAfter(index: number): boolean {
+        const currentKey = getCameraTargetKey(commands[index]);
+        if (!currentKey) return false;
+        if (index + 1 < commands.length) {
+          // Peek at next command's target (after updating position if current is move)
+          let peekX = currentX;
+          let peekZ = currentZ;
+          if (commands[index].type === "move") {
+            peekX = commands[index].targetX;
+            peekZ = commands[index].targetZ;
+          }
+          // Temporarily update for peek
+          const savedX = currentX;
+          const savedZ = currentZ;
+          currentX = peekX;
+          currentZ = peekZ;
+          const nextKey = getCameraTargetKey(commands[index + 1]);
+          currentX = savedX;
+          currentZ = savedZ;
+          if (nextKey === currentKey) return false;
+        }
+        return true;
+      }
+
+      function processNext(index: number): void {
+        if (index >= commands.length) {
+          faceClosestEnemy(unit, units);
+          resolve();
+          return;
+        }
+
+        const command = commands[index];
+        const skipCameraOut = !shouldTransitionOutAfter(index);
+
+        switch (command.type) {
+          case "move":
+            // Use the same animateMovement function as normal gameplay
+            animateMovement(unit, command.targetX, command.targetZ, () => {
+              currentX = command.targetX;
+              currentZ = command.targetZ;
+              processNext(index + 1);
+            });
+            break;
+
+          case "attack": {
+            const target = findUnitById(command.targetUnitId);
+            if (target && target.hp > 0) {
+              executeAttack(unit, target, () => processNext(index + 1), skipCameraOut);
+            } else {
+              // Target dead or not found, skip
+              if (isDramaticCamera) {
+                transitionFromDramaticCamera().then(() => processNext(index + 1));
+              } else {
+                processNext(index + 1);
+              }
+            }
+            break;
+          }
+
+          case "heal": {
+            const target = findUnitById(command.targetUnitId);
+            if (target) {
+              executeHeal(unit, target, () => processNext(index + 1), skipCameraOut);
+            } else {
+              processNext(index + 1);
+            }
+            break;
+          }
+
+          case "conceal":
+            executeConceal(unit, () => processNext(index + 1), skipCameraOut);
+            break;
+
+          case "cover":
+            executeCover(unit, () => processNext(index + 1), currentX, currentZ, skipCameraOut);
+            break;
+
+          default:
+            processNext(index + 1);
+        }
+      }
+
+      processNext(0);
+    });
+  }
+
+  replayBtn.onPointerUpObservable.add(() => {
+    replayPreviousTurn();
   });
 
-  // Pinch-to-zoom handling (works in both modes)
-  let initialPinchDistance = 0;
-  let initialRadius = camera.radius;
-
-  const handleTouchStart = (e: TouchEvent) => {
-    if (e.touches.length === 2) {
-      // Two fingers down - start pinch
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      initialPinchDistance = Math.sqrt(dx * dx + dy * dy);
-      initialRadius = camera.radius;
-      isPanning = false; // Cancel any panning
-    }
-  };
-
-  const handleTouchMove = (e: TouchEvent) => {
-    if (e.touches.length === 2 && initialPinchDistance > 0) {
-      // Two fingers moving - zoom
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const currentDistance = Math.sqrt(dx * dx + dy * dy);
-
-      const scale = initialPinchDistance / currentDistance;
-      let newRadius = initialRadius * scale;
-
-      // Clamp to camera limits
-      newRadius = Math.max(camera.lowerRadiusLimit || 5, Math.min(camera.upperRadiusLimit || 50, newRadius));
-      camera.radius = newRadius;
-
-      e.preventDefault(); // Prevent page zoom
-    }
-  };
-
-  const handleTouchEnd = (e: TouchEvent) => {
-    if (e.touches.length < 2) {
-      initialPinchDistance = 0;
-    }
-  };
-
-  canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
-  canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
-  canvas.addEventListener("touchend", handleTouchEnd);
-
-  // Clean up touch listeners and camera animation on scene dispose
+  // Clean up dramatic camera animation on scene dispose
   scene.onDisposeObservable.add(() => {
-    canvas.removeEventListener("touchstart", handleTouchStart);
-    canvas.removeEventListener("touchmove", handleTouchMove);
-    canvas.removeEventListener("touchend", handleTouchEnd);
-    // Cancel any ongoing dramatic camera animation
     if (dramaticCameraAnimationId !== null) {
       cancelAnimationFrame(dramaticCameraAnimationId);
       dramaticCameraAnimationId = null;
     }
   });
 
-  // Show camera mode toggle on all devices (iPad Pro users need it too)
-  gui.addControl(compassBtn);
-  updateCameraModeButton();
+  // Show replay button in top-right corner
+  gui.addControl(replayBtn);
+  updateReplayButtonVisibility();
 
   // ============================================
   // TURN ORDER PREVIEW (Next Up indicator + modal)
@@ -4019,7 +4287,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
   function showTurnOrderModal(): void {
     // Remember camera state and detach so touch doesn't move the map
-    modalWasCameraAttached = cameraMode === "rotate";
+    modalWasCameraAttached = true; // Always true now (no pan mode toggle)
     camera.detachControl();
 
     // Populate turn order list
@@ -4918,6 +5186,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     updateNextUpIndicator();
     updateActionButtons();
     updateCurrentUnitStatusBar();
+    updateReplayButtonVisibility();
 
     // Auto-select the current unit and show all available actions
     if (currentUnit && !controllerManager.isAI(currentUnit.team)) {

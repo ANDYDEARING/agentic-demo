@@ -39,6 +39,7 @@ npx tsc --noEmit # Type check only
     rules.ts            - Movement, LOS, combat, turn system
     commands.ts         - Command pattern for actions
     controllers.ts      - Controller abstraction (Human/AI)
+    replay.ts           - Turn recording types for replay/sync
   /scenes
     /battle             - Visual helpers for BattleScene
       terrain.ts        - Grid terrain generation
@@ -50,7 +51,7 @@ npx tsc --noEmit # Type check only
       ui/*.ts           - UI components (turnOrder, actionButtons, etc.)
       index.ts          - Re-exports all visual helpers
     /loadout            - LoadoutScene helpers
-    BattleScene.ts      - Main battle orchestrator (~5500 lines)
+    BattleScene.ts      - Main battle orchestrator (~5400 lines)
     LoadoutScene.ts     - Loadout screen
     TitleScene.ts       - Title screen
   main.ts               - Entry point, engine setup
@@ -108,7 +109,12 @@ faceClosestEnemy(unit, battleState.units);  // explicit state
 - `createBattleCamera`, `transitionToDramaticCamera`, `transitionFromDramaticCamera`
 - `createHighlightMaterials`, `highlightTile`, `createShadowPreview`
 - `createCoverBorder`, `showCoverPreview`, `updateHazardStripes`
-- UI: `createTurnOrderUI`, `createActionButtonsUI`, `createStatusBar`, `showGameOver`
+- UI: `createTurnOrderUI`, `createActionButtonsUI`, `createStatusBar`, `showGameOver`, `createTutorialOverlay`
+
+**Pure logic replay types** (import from `../battle/replay`):
+- `UnitSnapshot`, `UnitTurnRecord`, `TeamTurnRecord` - serializable for online sync
+- `createTeamTurnRecord()`, `createUnitTurnRecord()` - factory functions
+- `serializeTeamTurnRecord()`, `deserializeTeamTurnRecord()` - for network transmission
 
 ## Architecture Decisions
 
@@ -125,6 +131,18 @@ When implementing features:
 4. Keep the game playable at each stage
 
 **Note**: Never run the dev server (`npm run dev`) - the user handles that. Only run `npm run build` to verify TypeScript compiles.
+
+## PR Review Criteria
+
+When reviewing branches/PRs, evaluate against these goals:
+
+1. **Coding standards** - Industry PR standards (build passes, no regressions, consistent style, meaningful commit messages)
+2. **No dead code** - Remove unused imports, functions, variables, and commented-out code
+3. **Context-optimized for AI development** - Keep files small and focused so future AI sessions can work effectively:
+   - Extract large inline code blocks into dedicated modules
+   - BattleScene.ts should trend smaller, not larger
+   - Pure logic in `/src/battle/`, visuals in `/src/scenes/battle/`
+   - Headless simulation readiness must be maintained
 
 ## Open Questions (see docs/requirements.md)
 
@@ -193,7 +211,7 @@ The How To overlay uses `ScrollViewer` from `@babylonjs/gui` with:
     - `ui/gameOver.ts` - Game over overlay
     - `index.ts` - Re-exports all modules
   - **Architecture**: Pure game logic in `/src/battle/`, visual rendering in `/src/scenes/battle/`
-  - **Current state** (5,173 lines, down from 5,415):
+  - **Current state** (5,442 lines after additional extractions):
     - Animation functions fully migrated (playAnimation, playIdleAnimation, initFacing, setUnitFacing, faceClosestEnemy, faceAverageEnemyPosition)
     - Unit visual functions fully migrated (updateHpBar, setUnitExhausted, setUnitInactive, resetUnitAppearance, applyConcealVisual, removeConcealVisual)
     - Created `/src/scenes/battle/state.ts` with consolidated visual state types (BattleVisualState, HighlightState, etc.)
@@ -225,6 +243,38 @@ The How To overlay uses `ScrollViewer` from `@babylonjs/gui` with:
     - Added `resetLoadoutState()` function called when starting battle (so next visit is fresh)
     - Added `boost: state.selectedBoost` to `syncSelectionsFromStates()`
   - **Location**: `src/scenes/LoadoutScene.ts` - module state section and `syncSelectionsFromStates()`
+
+- Bug fixes and AI refactor
+  - **Gunshot sound fix**: Added `sound.load()` preloading for all sound effects to ensure first play works
+  - **Camera rotation fix**: LoadoutScene preview camera stops auto-rotating permanently once user touches it
+  - **Player turn messages**: Shows "Player 1 Turn" / "Player 2 Turn" / "Computer Turn" on team changes (not every unit)
+  - **AI refactored to clean 4-step decision flow** (`src/battle/controllers.ts`):
+    1. **Kill check** (universal) - prioritizes kills, tracks pending damage across actions
+    2. **Class ability** (class-specific) - operator: conceal, soldier: cover only if can't reach+attack, medic: heal
+    3. **Attack** (universal) - attack if enemy in range
+    4. **Move/Position** (class-specific with default) - medic positions behind allies, others move toward attack positions
+  - **Pending kill tracking**: Enemies with lethal pending damage are filtered from targets and pathfinding
+  - **Pathfinding through dead enemies**: `getValidMoveTiles()` accepts `ignoreUnitIds` for soon-to-be-dead enemies
+  - **Melee pathfinding**: New `selectMoveForMelee()` prioritizes tiles from which unit can actually attack
+  - **Soldier smarter cover**: Only covers when can't reach combat within remaining actions
+  - **No wasted attacks**: Second action re-evaluates targets excluding pending kills
+
+- Extracted tutorial and replay modules
+  - **Tutorial overlay** → `src/scenes/battle/ui/tutorial.ts` (236 lines)
+    - Creates the "How to Play" overlay shown on battle start
+    - Touch-aware: detects device type and shows appropriate controls
+    - Returns controls for programmatic show/hide
+  - **Replay data structures** → `src/battle/replay.ts` (139 lines, pure logic layer)
+    - `UnitSnapshot`, `UnitTurnRecord`, `TeamTurnRecord` types
+    - Factory functions: `createTeamTurnRecord()`, `createUnitTurnRecord()`
+    - Serialization helpers for online sync: `serializeTeamTurnRecord()`, `deserializeTeamTurnRecord()`
+    - **Future online sync**: These structures are network-ready for sending turn data to server
+  - **Replay visual module** → `src/scenes/battle/replay.ts` (197 lines, available but not wired up)
+    - `ReplayContext` interface for dependency injection
+    - `createReplayButton()` for UI creation
+    - Pattern for future decoupling of replay execution
+  - **BattleScene.ts**: 5,442 lines (down from 5,655 before extractions)
+  - **Net reduction**: 213 lines moved to dedicated modules
 
 ### 2026-01-30
 - Added "Quick How To" button and overlay to TitleScene

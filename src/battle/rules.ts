@@ -235,12 +235,14 @@ export function getTilesInLOS(
 /**
  * Get all tiles a unit can move to from a position.
  * Uses BFS for pathfinding. Cannot pass through enemies or terrain.
+ * @param ignoreUnitIds - Optional set of unit IDs to treat as non-existent (e.g., soon-to-be-dead enemies)
  */
 export function getValidMoveTiles(
   state: BattleState,
   unit: UnitState,
   fromX?: number,
-  fromZ?: number
+  fromZ?: number,
+  ignoreUnitIds?: Set<string>
 ): GridPosition[] {
   const startX = fromX ?? unit.gridX;
   const startZ = fromZ ?? unit.gridZ;
@@ -255,7 +257,9 @@ export function getValidMoveTiles(
 
     if (dist > 0 && dist <= unit.moveRange) {
       const occupied = getUnitAt(state, cx, cz);
-      if (!occupied && !hasTerrain(state, cx, cz)) {
+      // Can stop here if empty, or if occupied by a unit we're ignoring (will be dead)
+      const isIgnored = occupied && ignoreUnitIds?.has(occupied.id);
+      if ((!occupied || isIgnored) && !hasTerrain(state, cx, cz)) {
         reachable.push({ x: cx, z: cz });
       }
     }
@@ -276,7 +280,9 @@ export function getValidMoveTiles(
       }
 
       const unitAtTile = getUnitAt(state, nx, nz);
-      if (unitAtTile && unitAtTile.team !== unit.team) {
+      // Can path through allies, or enemies we're ignoring (will be dead)
+      const isIgnored = unitAtTile && ignoreUnitIds?.has(unitAtTile.id);
+      if (unitAtTile && unitAtTile.team !== unit.team && !isIgnored) {
         visited.add(key);
         continue;
       }
