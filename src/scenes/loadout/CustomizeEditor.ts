@@ -208,6 +208,25 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
     editorGrid.addControl(previewArea, 0, 1);
   }
 
+  // Options container: scroll area + fixed button row at bottom
+  const optionsContainer = new Grid("editorOptionsContainer");
+  optionsContainer.width = "100%";
+  optionsContainer.height = "100%";
+  const buttonAreaHeight = buttonHeight + 30; // button height + padding
+  optionsContainer.addRowDefinition(1); // Scroll area takes remaining space
+  optionsContainer.addRowDefinition(buttonAreaHeight, true); // Fixed button row at bottom
+  optionsContainer.addColumnDefinition(1);
+
+  if (isSmallScreen) {
+    if (isPortrait) {
+      editorGrid.addControl(optionsContainer, 1, 0);
+    } else {
+      editorGrid.addControl(optionsContainer, 0, 0);
+    }
+  } else {
+    editorGrid.addControl(optionsContainer, 0, 0);
+  }
+
   // Options scroll area
   const optionsScroll = new ScrollViewer("editorOptionsScroll");
   optionsScroll.width = "100%";
@@ -219,16 +238,7 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
   if (optionsScroll.horizontalBar) {
     optionsScroll.horizontalBar.isVisible = false;
   }
-
-  if (isSmallScreen) {
-    if (isPortrait) {
-      editorGrid.addControl(optionsScroll, 1, 0);
-    } else {
-      editorGrid.addControl(optionsScroll, 0, 0);
-    }
-  } else {
-    editorGrid.addControl(optionsScroll, 0, 0);
-  }
+  optionsContainer.addControl(optionsScroll, 0, 0);
 
   const optionsStack = new StackPanel("editorOptionsStack");
   optionsStack.width = "100%";
@@ -621,28 +631,12 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
     (idx) => { if (editingState) editingState.customization.eyeColor = idx; }
   ));
 
-  // Save/Cancel buttons
+  // Save/Cancel buttons - fixed at bottom of options container (not in scroll area)
   const buttonRow = new StackPanel("editorButtons");
   buttonRow.isVertical = false;
-  buttonRow.height = `${buttonHeight + 20}px`;
-  buttonRow.paddingTop = "15px";
-  optionsStack.addControl(buttonRow);
-
-  const saveBtn = Button.CreateSimpleButton("saveBtn", "Save");
-  saveBtn.width = "100px";
-  saveBtn.height = `${buttonHeight}px`;
-  saveBtn.background = COLORS.success;
-  saveBtn.color = COLORS.textPrimary;
-  saveBtn.cornerRadius = 6;
-  saveBtn.fontSize = fontSize;
-  saveBtn.onPointerClickObservable.add(() => close(true));
-  buttonRow.addControl(saveBtn);
-
-  const btnSpacer = new Rectangle();
-  btnSpacer.width = "20px";
-  btnSpacer.height = "1px";
-  btnSpacer.thickness = 0;
-  buttonRow.addControl(btnSpacer);
+  buttonRow.height = "100%";
+  buttonRow.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+  optionsContainer.addControl(buttonRow, 1, 0);
 
   const cancelBtn = Button.CreateSimpleButton("cancelBtn", "Cancel");
   cancelBtn.width = "100px";
@@ -653,6 +647,22 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
   cancelBtn.fontSize = fontSize;
   cancelBtn.onPointerClickObservable.add(() => close(false));
   buttonRow.addControl(cancelBtn);
+
+  const btnSpacer = new Rectangle();
+  btnSpacer.width = "20px";
+  btnSpacer.height = "1px";
+  btnSpacer.thickness = 0;
+  buttonRow.addControl(btnSpacer);
+
+  const saveBtn = Button.CreateSimpleButton("saveBtn", "Save");
+  saveBtn.width = "100px";
+  saveBtn.height = `${buttonHeight}px`;
+  saveBtn.background = COLORS.success;
+  saveBtn.color = COLORS.textPrimary;
+  saveBtn.cornerRadius = 6;
+  saveBtn.fontSize = fontSize;
+  saveBtn.onPointerClickObservable.add(() => close(true));
+  buttonRow.addControl(saveBtn);
 
   function refreshAllOptions(): void {
     if (!editingState) return;
