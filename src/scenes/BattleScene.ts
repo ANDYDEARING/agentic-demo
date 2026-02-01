@@ -135,15 +135,56 @@ import {
 //      /src/battle/commands.ts (Command pattern for actions)
 //      /src/battle/controllers.ts (Controller abstraction for PvE/PvP)
 
-// Greek letters for unit designations (matches LoadoutScene)
-const UNIT_DESIGNATIONS = ["Δ", "Ψ", "Ω"]; // Delta, Psi, Omega
+// =============================================================================
+// VISUAL HELPERS (extracted to /src/scenes/battle/)
+// =============================================================================
+// These modules contain reusable visual helpers. The functions below import
+// from them where possible. Some inline code remains due to tight coupling
+// with closure variables (units, turnState, etc.).
+//
+// Available modules:
+//   - terrain.ts: Grid terrain generation
+//   - animations.ts: Animation playback and facing system
+//   - unitVisuals.ts: Unit spawning, HP bars, conceal visuals
+//   - camera.ts: Dramatic camera transitions, pan/rotate toggle
+//   - highlights.ts: Tile highlighting, shadow preview, intent indicators
+//   - coverVisuals.ts: Cover ability visualization
+//   - ui/*: Turn order, action buttons, status bar, game over
+//
+// Import path: import { ... } from "./battle";
+// =============================================================================
 
-// Boost info for turn order display
-const BOOST_INFO = [
-  { name: "Tough", stat: "HP" },
-  { name: "Deadly", stat: "Damage" },
-  { name: "Quick", stat: "Speed" },
-];
+// Import extracted visual helpers (aliased to avoid conflicts with inline versions)
+// The inline versions use closure variables (units, terrainTiles, etc.) so we keep them
+// but have the extracted pure versions available for future refactoring.
+import {
+  // Terrain - available for future use
+  createTerrain as _createTerrain,
+  hasTerrain as _hasTerrainFromSet,
+  // Animations - pure functions, keep inline for now due to local faceTarget calls
+  playAnimation as _playAnimation,
+  playIdleAnimation as _playIdleAnimation,
+  initFacing as _initFacing,
+  applyFacing as _applyFacing,
+  faceTarget as _faceTarget,
+  faceClosestEnemy as _faceClosestEnemy,
+  faceAverageEnemyPosition as _faceAverageEnemyPosition,
+  setUnitFacing as _setUnitFacing,
+  // Unit visuals
+  UNIT_DESIGNATIONS,
+  updateHpBar as _updateHpBar,
+  applyConcealVisual as _applyConcealVisual,
+  removeConcealVisual as _removeConcealVisual,
+  resetUnitAppearance as _resetUnitAppearance,
+} from "./battle";
+// Suppress unused import warnings (these are available for future migration)
+void _createTerrain; void _hasTerrainFromSet;
+void _playAnimation; void _playIdleAnimation; void _initFacing; void _applyFacing;
+void _faceTarget; void _faceClosestEnemy; void _faceAverageEnemyPosition; void _setUnitFacing;
+void _updateHpBar; void _applyConcealVisual; void _removeConcealVisual; void _resetUnitAppearance;
+
+// Import from loadout constants
+import { BOOST_INFO } from "./loadout/constants";
 
 export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loadout: Loadout | null): Scene {
   const scene = new Scene(engine);
