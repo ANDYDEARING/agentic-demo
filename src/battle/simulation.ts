@@ -32,7 +32,10 @@ export interface SimulationStats {
   boostCounts: Record<number, TraitStats>;
 
   // Win rates by class+weapon combo
-  comboCounts: Record<string, TraitStats>;
+  classWeaponCounts: Record<string, TraitStats>;
+
+  // Win rates by class+boost combo
+  classBoostCounts: Record<string, TraitStats>;
 }
 
 // =============================================================================
@@ -57,7 +60,8 @@ function createEmptyStats(): SimulationStats {
       1: { appearances: 0, wins: 0 },
       2: { appearances: 0, wins: 0 },
     },
-    comboCounts: {},
+    classWeaponCounts: {},
+    classBoostCounts: {},
   };
 }
 
@@ -79,13 +83,21 @@ function recordLoadout(
     stats.boostCounts[unit.boost].appearances++;
     if (won) stats.boostCounts[unit.boost].wins++;
 
-    // Combo
-    const comboKey = `${unit.unitClass}+${unit.weapon}`;
-    if (!stats.comboCounts[comboKey]) {
-      stats.comboCounts[comboKey] = { appearances: 0, wins: 0 };
+    // Class+Weapon combo
+    const classWeaponKey = `${unit.unitClass}+${unit.weapon}`;
+    if (!stats.classWeaponCounts[classWeaponKey]) {
+      stats.classWeaponCounts[classWeaponKey] = { appearances: 0, wins: 0 };
     }
-    stats.comboCounts[comboKey].appearances++;
-    if (won) stats.comboCounts[comboKey].wins++;
+    stats.classWeaponCounts[classWeaponKey].appearances++;
+    if (won) stats.classWeaponCounts[classWeaponKey].wins++;
+
+    // Class+Boost combo
+    const classBoostKey = `${unit.unitClass}+${unit.boost}`;
+    if (!stats.classBoostCounts[classBoostKey]) {
+      stats.classBoostCounts[classBoostKey] = { appearances: 0, wins: 0 };
+    }
+    stats.classBoostCounts[classBoostKey].appearances++;
+    if (won) stats.classBoostCounts[classBoostKey].wins++;
   }
 }
 
@@ -165,16 +177,30 @@ export function printStats(stats: SimulationStats): void {
   }
 
   console.log("\n=== CLASS+WEAPON COMBOS ===");
-  const sortedCombos = Object.entries(stats.comboCounts).sort((a, b) => {
+  const sortedWeaponCombos = Object.entries(stats.classWeaponCounts).sort((a, b) => {
     const aRate = a[1].appearances > 0 ? a[1].wins / a[1].appearances : 0;
     const bRate = b[1].appearances > 0 ? b[1].wins / b[1].appearances : 0;
     return bRate - aRate;
   });
-  for (const [combo, data] of sortedCombos) {
+  for (const [combo, data] of sortedWeaponCombos) {
     const [cls, weapon] = combo.split("+");
     const className = cls.charAt(0).toUpperCase() + cls.slice(1);
     const weaponName = WEAPON_DATA[weapon as WeaponType]?.name || weapon;
     const name = `${className}+${weaponName}`;
+    console.log(`${name.padEnd(20)} ${formatPercent(data.wins, data.appearances)}`);
+  }
+
+  console.log("\n=== CLASS+BOOST COMBOS ===");
+  const sortedBoostCombos = Object.entries(stats.classBoostCounts).sort((a, b) => {
+    const aRate = a[1].appearances > 0 ? a[1].wins / a[1].appearances : 0;
+    const bRate = b[1].appearances > 0 ? b[1].wins / b[1].appearances : 0;
+    return bRate - aRate;
+  });
+  for (const [combo, data] of sortedBoostCombos) {
+    const [cls, boost] = combo.split("+");
+    const className = cls.charAt(0).toUpperCase() + cls.slice(1);
+    const boostName = BOOST_NAMES[parseInt(boost)]?.split(" ")[0] || boost;
+    const name = `${className}+${boostName}`;
     console.log(`${name.padEnd(20)} ${formatPercent(data.wins, data.appearances)}`);
   }
 }
