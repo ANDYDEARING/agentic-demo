@@ -123,11 +123,21 @@ import {
   ControllerManager,
   createLocalPvPControllers,
   createPvEControllers,
+  // Pure game logic - state types
+  type BattleState,
+  type UnitState,
+  // Pure game logic - rules (replacing inline versions)
+  isAdjacent as rulesIsAdjacent,
+  getAdjacentTiles as rulesGetAdjacentTiles,
+  hasLineOfSight as rulesHasLineOfSight,
+  getTilesInLOS as rulesGetTilesInLOS,
+  getValidMoveTiles as rulesGetValidMoveTiles,
+  getPathToTarget as rulesGetPathToTarget,
+  getValidAttackTiles as rulesGetValidAttackTiles,
+  getEffectiveSpeed as rulesGetEffectiveSpeed,
 } from "../battle";
 
-// Pure game logic is available in /src/battle/ for headless simulations.
-// This file (BattleScene.ts) handles visual rendering and uses inline logic
-// that mirrors the pure versions. Future refactor: delegate to battle module.
+// Pure game logic from /src/battle/ is now used directly via the state bridge.
 // See: /src/battle/state.ts (UnitState, BattleState)
 //      /src/battle/rules.ts (movement, LOS, combat, turns)
 //      /src/battle/commands.ts (Command pattern for actions)
@@ -551,10 +561,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     cube.metadata = { type: "terrain", gridX: x, gridZ: z };
   }
 
-  // Helper to check if a tile has terrain
-  function hasTerrain(x: number, z: number): boolean {
-    return terrainTiles.has(`${x},${z}`);
-  }
+  // hasTerrain check is done via getBattleState() which includes terrainTiles
 
   // ============================================
   // STATE EXTRACTION (for simulations/AI)
@@ -643,6 +650,117 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     const [team, indexStr] = id.split("-");
     const index = parseInt(indexStr, 10);
     return units.find((u, i) => u.team === team && i === index);
+  }
+
+  // ============================================
+  // STATE BRIDGE (Visual ↔ Pure Logic)
+  // ============================================
+  // These helpers convert between visual Units and pure UnitState/BattleState
+  // to enable using rules.ts functions with minimal overhead.
+
+  /** Convert visual Unit to pure UnitState (lightweight, for rules functions) */
+  function toUnitState(unit: Unit): UnitState {
+    return {
+      id: getUnitId(unit),
+      unitClass: unit.unitClass,
+      team: unit.team,
+      gridX: unit.gridX,
+      gridZ: unit.gridZ,
+      hp: unit.hp,
+      maxHp: unit.maxHp,
+      attack: unit.attack,
+      healAmount: unit.healAmount,
+      moveRange: unit.moveRange,
+      attackRange: unit.attackRange,
+      combatStyle: unit.customization?.combatStyle ?? "ranged",
+      speed: unit.speed,
+      speedBonus: unit.speedBonus,
+      accumulator: unit.accumulator,
+      loadoutIndex: unit.loadoutIndex,
+      isConcealed: unit.isConcealed,
+      isCovering: unit.isCovering,
+      coveredTiles: [], // Not tracking in visual Unit yet
+      actionsUsed: 0,
+    };
+  }
+
+  /** Create minimal BattleState from closure variables (cached per frame) */
+  let cachedState: BattleState | null = null;
+  let cacheFrame = -1;
+
+  function getBattleState(): BattleState {
+    // Cache state per render frame to avoid repeated conversions
+    const currentFrame = scene.getFrameId();
+    if (cachedState && cacheFrame === currentFrame) {
+      return cachedState;
+    }
+
+    cachedState = {
+      gridSize: GRID_SIZE,
+      terrain: terrainTiles,
+      units: units.filter(u => u.hp > 0).map(toUnitState),
+      currentUnitId: currentUnit ? getUnitId(currentUnit) : null,
+      actionsRemaining: turnState?.actionsRemaining ?? 0,
+      pendingActions: [],
+      originalPosition: turnState?.originalPosition ?? null,
+      isGameOver: gameOver,
+      winner: null,
+    };
+    cacheFrame = currentFrame;
+
+    return cachedState;
+  }
+
+  // ============================================
+  // PURE LOGIC WRAPPERS
+  // ============================================
+  // These wrap rules.ts functions to work with visual Units.
+  // Note: Action checks (hasActionsRemaining) are done by callers.
+
+  function isAdjacent(x1: number, z1: number, x2: number, z2: number): boolean {
+    return rulesIsAdjacent(x1, z1, x2, z2);
+  }
+
+  function hasLineOfSight(fromX: number, fromZ: number, toX: number, toZ: number, excludeUnit?: Unit): boolean {
+    const state = getBattleState();
+    const excludeId = excludeUnit ? getUnitId(excludeUnit) : undefined;
+    return rulesHasLineOfSight(state, fromX, fromZ, toX, toZ, excludeId);
+  }
+
+  function getTilesInLOS(fromX: number, fromZ: number, excludeAdjacent: boolean, excludeUnit?: Unit): { x: number; z: number }[] {
+    const state = getBattleState();
+    const excludeId = excludeUnit ? getUnitId(excludeUnit) : undefined;
+    return rulesGetTilesInLOS(state, fromX, fromZ, excludeAdjacent, excludeId);
+  }
+
+  function getAdjacentTiles(x: number, z: number): { x: number; z: number }[] {
+    const state = getBattleState();
+    return rulesGetAdjacentTiles(state, x, z);
+  }
+
+  function getValidMoveTilesRaw(unit: Unit, fromX?: number, fromZ?: number): { x: number; z: number }[] {
+    const state = getBattleState();
+    const unitState = toUnitState(unit);
+    return rulesGetValidMoveTiles(state, unitState, fromX, fromZ);
+  }
+
+  function getPathToTarget(unit: Unit, fromX: number, fromZ: number, toX: number, toZ: number): { x: number; z: number }[] {
+    const state = getBattleState();
+    const unitState = toUnitState(unit);
+    return rulesGetPathToTarget(state, unitState, fromX, fromZ, toX, toZ);
+  }
+
+  function getValidAttackTiles(unit: Unit, fromX?: number, fromZ?: number): { x: number; z: number; hasLOS: boolean }[] {
+    const state = getBattleState();
+    const unitState = toUnitState(unit);
+    return rulesGetValidAttackTiles(state, unitState, fromX, fromZ);
+  }
+
+  // getAttackableEnemies and getHealableAllies use inline versions with action checks
+  // that call getValidAttackTiles (which uses rules.ts via wrapper)
+
+  function getEffectiveSpeed(unit: Unit): number {
+    return rulesGetEffectiveSpeed(toUnitState(unit));
   }
 
   // ============================================
@@ -773,261 +891,11 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   // playAnimation, playIdleAnimation, initFacing, applyFacing, faceTarget, setUnitFacing
   // faceClosestEnemy and faceAverageEnemyPosition need units array passed in
 
-  // ============================================
-  // LINE OF SIGHT SYSTEM
-  // ============================================
-  // Mathematical line-rectangle intersection approach:
-  // - Line from center of fromTile to center of toTile
-  // - If line passes through interior of any blocking tile → blocked
-  // - If line only grazes corners, track which side of the line blockers are on
-  // - If corners are touched on BOTH sides (left and right) → blocked
-
-  // Epsilon for floating point comparisons
-  const LOS_EPSILON = 0.0001;
-
-  // Check if a line segment intersects a tile's interior (not just corner)
-  // Returns: "none" | "interior" | "corner"
-  function lineRectIntersection(
-    ax: number, az: number,  // Line start (tile centers)
-    bx: number, bz: number,  // Line end (tile centers)
-    tileX: number, tileZ: number  // Tile grid coordinates
-  ): "none" | "interior" | "corner" {
-    // Tile bounds (each tile is 1x1, from [tileX, tileX+1] x [tileZ, tileZ+1])
-    const minX = tileX;
-    const maxX = tileX + 1;
-    const minZ = tileZ;
-    const maxZ = tileZ + 1;
-
-    // Line direction
-    const dx = bx - ax;
-    const dz = bz - az;
-
-    // Parametric line clipping (Liang-Barsky algorithm)
-    let tMin = 0;
-    let tMax = 1;
-
-    // Check each edge
-    const edges = [
-      { p: -dx, q: ax - minX },  // Left edge
-      { p: dx, q: maxX - ax },   // Right edge
-      { p: -dz, q: az - minZ },  // Bottom edge
-      { p: dz, q: maxZ - az },   // Top edge
-    ];
-
-    for (const { p, q } of edges) {
-      if (Math.abs(p) < LOS_EPSILON) {
-        // Line is parallel to this edge
-        if (q < 0) return "none";  // Line is outside
-      } else {
-        const t = q / p;
-        if (p < 0) {
-          tMin = Math.max(tMin, t);
-        } else {
-          tMax = Math.min(tMax, t);
-        }
-      }
-    }
-
-    if (tMin > tMax + LOS_EPSILON) {
-      return "none";  // No intersection
-    }
-
-    // Calculate intersection points
-    const entryX = ax + tMin * dx;
-    const entryZ = az + tMin * dz;
-    const exitX = ax + tMax * dx;
-    const exitZ = az + tMax * dz;
-
-    // Check if entry and exit are essentially the same point (corner touch)
-    const intersectionLength = Math.sqrt((exitX - entryX) ** 2 + (exitZ - entryZ) ** 2);
-    if (intersectionLength < LOS_EPSILON) {
-      // Single point intersection - check if it's a corner
-      const corners = [
-        { x: minX, z: minZ },
-        { x: minX, z: maxZ },
-        { x: maxX, z: minZ },
-        { x: maxX, z: maxZ },
-      ];
-      for (const corner of corners) {
-        if (Math.abs(entryX - corner.x) < LOS_EPSILON && Math.abs(entryZ - corner.z) < LOS_EPSILON) {
-          return "corner";
-        }
-      }
-      // Edge touch (not corner) - treat as interior for blocking purposes
-      return "interior";
-    }
-
-    return "interior";
-  }
-
-  // Determine which side of the line a point is on
-  // Returns positive for left, negative for right, 0 for on line
-  function sideOfLine(
-    ax: number, az: number,  // Line start
-    bx: number, bz: number,  // Line end
-    px: number, pz: number   // Point to test
-  ): number {
-    // 2D cross product: (B-A) × (P-A)
-    return (bx - ax) * (pz - az) - (bz - az) * (px - ax);
-  }
-
-  function hasLineOfSight(fromX: number, fromZ: number, toX: number, toZ: number, excludeUnit?: Unit): boolean {
-    // Line from center of fromTile to center of toTile
-    const ax = fromX + 0.5;
-    const az = fromZ + 0.5;
-    const bx = toX + 0.5;
-    const bz = toZ + 0.5;
-
-    // Track TERRAIN corner touches on each side of the line
-    // Only terrain blocks diagonals - units on corners don't block
-    let leftTerrainCorner = false;
-    let rightTerrainCorner = false;
-
-    // Get bounding box of tiles to check (expanded by 1 to catch edge cases)
-    const minTileX = Math.max(0, Math.min(fromX, toX) - 1);
-    const maxTileX = Math.min(GRID_SIZE - 1, Math.max(fromX, toX) + 1);
-    const minTileZ = Math.max(0, Math.min(fromZ, toZ) - 1);
-    const maxTileZ = Math.min(GRID_SIZE - 1, Math.max(fromZ, toZ) + 1);
-
-    // Check all potentially blocking tiles in the bounding box
-    for (let tileX = minTileX; tileX <= maxTileX; tileX++) {
-      for (let tileZ = minTileZ; tileZ <= maxTileZ; tileZ++) {
-        // Skip start and end tiles
-        if ((tileX === fromX && tileZ === fromZ) || (tileX === toX && tileZ === toZ)) {
-          continue;
-        }
-
-        const isTerrain = hasTerrain(tileX, tileZ);
-        const hasUnit = units.some(u => u.gridX === tileX && u.gridZ === tileZ && u.hp > 0 && u !== excludeUnit);
-
-        if (!isTerrain && !hasUnit) continue;
-
-        // Check intersection type
-        const intersection = lineRectIntersection(ax, az, bx, bz, tileX, tileZ);
-
-        if (intersection === "interior") {
-          return false;  // Blocked by interior intersection (terrain or unit)
-        }
-
-        if (intersection === "corner" && isTerrain) {
-          // Only terrain matters for corner blocking
-          const tileCenterX = tileX + 0.5;
-          const tileCenterZ = tileZ + 0.5;
-          const side = sideOfLine(ax, az, bx, bz, tileCenterX, tileCenterZ);
-
-          if (side > LOS_EPSILON) {
-            leftTerrainCorner = true;
-          } else if (side < -LOS_EPSILON) {
-            rightTerrainCorner = true;
-          }
-          // If side ≈ 0, terrain center is on the line (rare edge case, treat as blocking)
-          else {
-            return false;
-          }
-
-          // If terrain on both sides touches corners, LOS is blocked
-          if (leftTerrainCorner && rightTerrainCorner) {
-            return false;
-          }
-        }
-      }
-    }
-
-    return true;
-  }
-
-  function getTilesInLOS(fromX: number, fromZ: number, excludeAdjacent: boolean, excludeUnit?: Unit): { x: number; z: number }[] {
-    const result: { x: number; z: number }[] = [];
-
-    for (let x = 0; x < GRID_SIZE; x++) {
-      for (let z = 0; z < GRID_SIZE; z++) {
-        if (x === fromX && z === fromZ) continue;
-
-        // Skip terrain tiles (no unit can stand there)
-        if (hasTerrain(x, z)) continue;
-
-        // If excluding adjacent (for guns), skip all 8 adjacent tiles including diagonals
-        if (excludeAdjacent && isAdjacent(fromX, fromZ, x, z)) continue;
-
-        if (hasLineOfSight(fromX, fromZ, x, z, excludeUnit)) {
-          result.push({ x, z });
-        }
-      }
-    }
-
-    return result;
-  }
-
-  // ============================================
-  // WEAPON RANGE HELPERS
-  // ============================================
-
-  // Get all 8 adjacent tiles (including diagonals)
-  function getAdjacentTiles(x: number, z: number): { x: number; z: number }[] {
-    const adjacent: { x: number; z: number }[] = [];
-    const directions = [
-      { dx: 0, dz: 1 },   // North
-      { dx: 0, dz: -1 },  // South
-      { dx: 1, dz: 0 },   // East
-      { dx: -1, dz: 0 },  // West
-      { dx: 1, dz: 1 },   // NE
-      { dx: -1, dz: 1 },  // NW
-      { dx: 1, dz: -1 },  // SE
-      { dx: -1, dz: -1 }, // SW
-    ];
-
-    for (const dir of directions) {
-      const nx = x + dir.dx;
-      const nz = z + dir.dz;
-      // Check bounds and exclude terrain tiles
-      if (nx >= 0 && nx < GRID_SIZE && nz >= 0 && nz < GRID_SIZE && !hasTerrain(nx, nz)) {
-        adjacent.push({ x: nx, z: nz });
-      }
-    }
-
-    return adjacent;
-  }
+  // LOS, adjacent tiles, and weapon range functions use wrappers defined
+  // in STATE BRIDGE section that delegate to /src/battle/rules.ts
 
   // Check if a tile is adjacent (including diagonals)
-  function isAdjacent(x1: number, z1: number, x2: number, z2: number): boolean {
-    const dx = Math.abs(x2 - x1);
-    const dz = Math.abs(z2 - z1);
-    return dx <= 1 && dz <= 1 && !(dx === 0 && dz === 0);
-  }
-
-  function getValidAttackTiles(unit: Unit, fromX?: number, fromZ?: number): { x: number; z: number; hasLOS: boolean }[] {
-    const x = fromX ?? unit.gridX;
-    const z = fromZ ?? unit.gridZ;
-    const isMelee = unit.customization?.combatStyle === "melee";
-
-    if (isMelee) {
-      // Sword: all 8 adjacent tiles, with LOS check for diagonals
-      return getAdjacentTiles(x, z).map(tile => {
-        const isDiagonal = tile.x !== x && tile.z !== z;
-        // Diagonals need LOS check, ordinals always have LOS
-        const hasLOS = isDiagonal ? hasLineOfSight(x, z, tile.x, tile.z, unit) : true;
-        return { ...tile, hasLOS };
-      });
-    } else {
-      // Gun: LOS but not adjacent (all 8 surrounding tiles excluded)
-      const losResult: { x: number; z: number; hasLOS: boolean }[] = [];
-
-      for (let tx = 0; tx < GRID_SIZE; tx++) {
-        for (let tz = 0; tz < GRID_SIZE; tz++) {
-          if (tx === x && tz === z) continue;
-
-          // Skip all 8 adjacent tiles
-          if (isAdjacent(x, z, tx, tz)) continue;
-
-          // Exclude the shooter from blocking their own LOS
-          const hasLOS = hasLineOfSight(x, z, tx, tz, unit);
-          losResult.push({ x: tx, z: tz, hasLOS });
-        }
-      }
-
-      return losResult;
-    }
-  }
+  // isAdjacent and getValidAttackTiles use wrappers defined in STATE BRIDGE section
 
   // LOS-blocked material (gray for blocked targets)
   // Blocked tile material (no LOS) - using centralized color config
@@ -1393,9 +1261,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   let cornerMaterial: StandardMaterial | null = null;
   let pulseTime = 0;
 
-  function getEffectiveSpeed(unit: Unit): number {
-    return unit.speed + unit.speedBonus;
-  }
+  // getEffectiveSpeed uses wrapper defined in STATE BRIDGE section
 
   function createCornerIndicators(unit: Unit): void {
     clearCornerIndicators();
@@ -1692,120 +1558,12 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   }
 
   function getValidMoveTiles(unit: Unit, fromX?: number, fromZ?: number): { x: number; z: number }[] {
-    if (!hasActionsRemaining()) return []; // No actions remaining
-    const startX = fromX ?? unit.gridX;
-    const startZ = fromZ ?? unit.gridZ;
-
-    // BFS pathfinding - find all tiles reachable within move range
-    // Cannot pass through enemy units, but can pass through friendly units
-    const visited = new Set<string>();
-    const reachable: { x: number; z: number }[] = [];
-
-    // Queue: [x, z, distance]
-    const queue: [number, number, number][] = [[startX, startZ, 0]];
-    visited.add(`${startX},${startZ}`);
-
-    while (queue.length > 0) {
-      const [cx, cz, dist] = queue.shift()!;
-
-      // If within move range and not the starting tile, it's a valid destination
-      if (dist > 0 && dist <= unit.moveRange) {
-        // Check if target tile is unoccupied (can't end on another unit or terrain)
-        const occupied = units.some(u => u.gridX === cx && u.gridZ === cz);
-        if (!occupied && !hasTerrain(cx, cz)) {
-          reachable.push({ x: cx, z: cz });
-        }
-      }
-
-      // Stop expanding if at max range
-      if (dist >= unit.moveRange) continue;
-
-      // Check all 4 cardinal directions (manhattan movement)
-      const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-      for (const [dx, dz] of directions) {
-        const nx = cx + dx;
-        const nz = cz + dz;
-        const key = `${nx},${nz}`;
-
-        // Skip if out of bounds or already visited
-        if (nx < 0 || nx >= GRID_SIZE || nz < 0 || nz >= GRID_SIZE) continue;
-        if (visited.has(key)) continue;
-
-        // Check if tile is blocked by terrain (can't pass through)
-        if (hasTerrain(nx, nz)) {
-          visited.add(key);
-          continue;
-        }
-
-        // Check if tile is blocked by enemy unit (can't pass through)
-        const enemyBlocking = units.some(u => u.gridX === nx && u.gridZ === nz && u.team !== unit.team);
-        if (enemyBlocking) {
-          visited.add(key); // Mark as visited so we don't check again
-          continue;
-        }
-
-        visited.add(key);
-        queue.push([nx, nz, dist + 1]);
-      }
-    }
-
-    return reachable;
+    if (!hasActionsRemaining()) return [];
+    // Delegates to rules.ts via wrapper (BFS pathfinding algorithm)
+    return getValidMoveTilesRaw(unit, fromX, fromZ);
   }
 
-  // Compute the actual path from start to target using BFS
-  function getPathToTarget(unit: Unit, fromX: number, fromZ: number, toX: number, toZ: number): { x: number; z: number }[] {
-    // BFS to find shortest path
-    const visited = new Set<string>();
-    const parent = new Map<string, string | null>();
-
-    const queue: [number, number][] = [[fromX, fromZ]];
-    const startKey = `${fromX},${fromZ}`;
-    visited.add(startKey);
-    parent.set(startKey, null);
-
-    while (queue.length > 0) {
-      const [cx, cz] = queue.shift()!;
-      const currentKey = `${cx},${cz}`;
-
-      // Found target
-      if (cx === toX && cz === toZ) {
-        // Reconstruct path
-        const path: { x: number; z: number }[] = [];
-        let key: string | null = currentKey;
-        while (key) {
-          const [x, z] = key.split(",").map(Number);
-          path.unshift({ x, z });
-          key = parent.get(key) || null;
-        }
-        return path;
-      }
-
-      // Check cardinal directions
-      const directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-      for (const [dx, dz] of directions) {
-        const nx = cx + dx;
-        const nz = cz + dz;
-        const key = `${nx},${nz}`;
-
-        if (nx < 0 || nx >= GRID_SIZE || nz < 0 || nz >= GRID_SIZE) continue;
-        if (visited.has(key)) continue;
-
-        // Check terrain blocking
-        if (hasTerrain(nx, nz)) continue;
-
-        // Check enemy blocking
-        const enemyBlocking = units.some(u => u.gridX === nx && u.gridZ === nz && u.team !== unit.team && u.hp > 0);
-        if (enemyBlocking) continue;
-
-        visited.add(key);
-        parent.set(key, currentKey);
-        queue.push([nx, nz]);
-      }
-    }
-
-    // No path found, return direct path (shouldn't happen if target is valid)
-    return [{ x: fromX, z: fromZ }, { x: toX, z: toZ }];
-  }
+  // getPathToTarget delegates to rules.ts via wrapper defined in STATE BRIDGE section
 
   // Legacy function - kept for potential AI/simulation use (simpler than LOS version)
   function getAttackableEnemiesSimple(unit: Unit, fromX?: number, fromZ?: number): Unit[] {

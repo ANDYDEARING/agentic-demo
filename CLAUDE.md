@@ -193,11 +193,17 @@ The How To overlay uses `ScrollViewer` from `@babylonjs/gui` with:
     - `ui/gameOver.ts` - Game over overlay
     - `index.ts` - Re-exports all modules
   - **Architecture**: Pure game logic in `/src/battle/`, visual rendering in `/src/scenes/battle/`
-  - **Current state**:
+  - **Current state** (5,173 lines, down from 5,415):
     - Animation functions fully migrated (playAnimation, playIdleAnimation, initFacing, setUnitFacing, faceClosestEnemy, faceAverageEnemyPosition)
     - Unit visual functions fully migrated (updateHpBar, setUnitExhausted, setUnitInactive, resetUnitAppearance, applyConcealVisual, removeConcealVisual)
     - Created `/src/scenes/battle/state.ts` with consolidated visual state types (BattleVisualState, HighlightState, etc.)
-    - Remaining: highlight, cover visual, shadow preview, intent indicator functions (use closure variables for tiles, scene)
+    - **Pure logic delegated to rules.ts** via state bridge:
+      - LOS system (hasLineOfSight, getTilesInLOS, lineRectIntersection) - removed ~150 lines
+      - Movement (getValidMoveTiles, getPathToTarget) - removed ~100 lines
+      - Attack/heal targeting (getValidAttackTiles, getAdjacentTiles, isAdjacent) - removed ~50 lines
+      - Turn order (getEffectiveSpeed) - delegates to rules.ts
+    - UI-driven functions (highlights, cover visuals, shadow preview) remain inline - not needed for headless simulation
+  - **State bridge pattern**: `getBattleState()` creates a cached BattleState from closure variables, enabling rules.ts functions
   - **Migration pattern**: Pass `units` array to functions that need it (e.g., `faceClosestEnemy(unit, units)`)
   - **Documentation**: Added "Battle Architecture" section to CLAUDE.md
 
