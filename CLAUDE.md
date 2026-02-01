@@ -112,6 +112,16 @@ The How To overlay uses `ScrollViewer` from `@babylonjs/gui` with:
   - **Solution**: 4x4 pixel black element in bottom-right corner that pulses on visibility change
   - **Location**: `src/main.ts` - `pulseForAudio()` function and iOS Audio Resume Workaround section
 
+- Fixed loadout selections lost on screen rotation
+  - **Problem**: Weapon and boost selections weren't carrying forward to battle, especially after device rotation
+  - **Root cause (rotation)**: `unitStates` and `selections` were function-scoped, so orientation changes that recreated the scene would reset all customizations to defaults
+  - **Root cause (boost)**: `syncSelectionsFromStates()` was missing the `boost` field, so boost selections were never passed to BattleScene
+  - **Solution**:
+    - Moved `unitStates`, `selections`, `currentTeam`, `isP2Computer` to module-level state
+    - Added `resetLoadoutState()` function called when starting battle (so next visit is fresh)
+    - Added `boost: state.selectedBoost` to `syncSelectionsFromStates()`
+  - **Location**: `src/scenes/LoadoutScene.ts` - module state section and `syncSelectionsFromStates()`
+
 ### 2026-01-30
 - Added "Quick How To" button and overlay to TitleScene
   - **How To overlay**: Shows game instructions with scrollable text
