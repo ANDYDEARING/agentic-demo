@@ -647,6 +647,130 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
     screenBorder.color = `#${r}${g}${b}`;
   }
 
+  // ============================================
+  // TUTORIAL OVERLAY
+  // ============================================
+  // Detect touch device
+  const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+  const clickWord = isTouchDevice ? "Tap" : "Click";
+
+  // Build tutorial text based on device type
+  const tutorialLines: string[] = [];
+  if (isTouchDevice) {
+    tutorialLines.push("Two fingers to zoom and move the camera");
+    tutorialLines.push("One finger to rotate the board");
+  } else {
+    tutorialLines.push("Mouse wheel to zoom");
+    tutorialLines.push("Hold left click + drag to move the camera");
+    tutorialLines.push("Right click + drag to rotate the board");
+  }
+  tutorialLines.push("");  // Blank line separator
+  tutorialLines.push(`${clickWord} on blue spaces to move`);
+  tutorialLines.push(`${clickWord} on a unit to use its ability`);
+  tutorialLines.push(`${clickWord} on red spaces to attack`);
+  tutorialLines.push(`${clickWord} on green spaces to heal (Medic)`);
+  tutorialLines.push("");  // Blank line separator
+  tutorialLines.push(`Each unit gets 2 actions per turn`);
+  tutorialLines.push(`${clickWord} bottom right to end your turn`);
+
+  // Tutorial overlay container (matching Quick How To style)
+  const tutorialOverlay = new Rectangle("tutorialOverlay");
+  tutorialOverlay.width = "100%";
+  tutorialOverlay.height = "100%";
+  tutorialOverlay.background = "rgba(0, 0, 0, 0.95)";
+  tutorialOverlay.thickness = 0;
+  tutorialOverlay.zIndex = 200;
+  gui.addControl(tutorialOverlay);
+
+  // Tutorial content panel
+  const tutorialPanel = new Rectangle("tutorialPanel");
+  tutorialPanel.width = isTouchDevice ? "90%" : "420px";
+  tutorialPanel.adaptHeightToChildren = true;
+  tutorialPanel.background = "transparent";
+  tutorialPanel.thickness = 0;
+  tutorialPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+  tutorialOverlay.addControl(tutorialPanel);
+
+  // Stack for tutorial content
+  const tutorialStack = new StackPanel("tutorialStack");
+  tutorialStack.width = "100%";
+  tutorialPanel.addControl(tutorialStack);
+
+  // Title
+  const tutorialTitle = new TextBlock("tutorialTitle", "H O W   T O   P L A Y");
+  tutorialTitle.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
+  tutorialTitle.fontSize = 36;
+  tutorialTitle.color = "#ff9966";
+  tutorialTitle.height = "50px";
+  tutorialTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  tutorialStack.addControl(tutorialTitle);
+
+  // Divider under title
+  const tutorialDivider = new Rectangle("tutorialDivider");
+  tutorialDivider.width = "80%";
+  tutorialDivider.height = "2px";
+  tutorialDivider.background = "rgba(255, 150, 80, 0.4)";
+  tutorialDivider.thickness = 0;
+  tutorialDivider.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  tutorialStack.addControl(tutorialDivider);
+
+  // Spacer after divider
+  const topSpacer = new Rectangle("topSpacer");
+  topSpacer.height = "20px";
+  topSpacer.thickness = 0;
+  topSpacer.background = "transparent";
+  tutorialStack.addControl(topSpacer);
+
+  // Tutorial lines
+  for (const line of tutorialLines) {
+    const textLine = new TextBlock();
+    textLine.text = line;
+    textLine.fontFamily = "'Exo 2', sans-serif";
+    textLine.fontSize = 16;
+    textLine.color = line === "" ? "transparent" : "#cccccc";
+    textLine.height = line === "" ? "16px" : "30px";
+    textLine.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    textLine.textWrapping = true;
+    textLine.paddingLeft = "20px";
+    textLine.paddingRight = "20px";
+    tutorialStack.addControl(textLine);
+  }
+
+  // Spacer before button
+  const buttonSpacer = new Rectangle("buttonSpacer");
+  buttonSpacer.height = "30px";
+  buttonSpacer.thickness = 0;
+  buttonSpacer.background = "transparent";
+  tutorialStack.addControl(buttonSpacer);
+
+  // Close button (matching Quick How To style)
+  const tutorialCloseBtn = Button.CreateSimpleButton("tutorialCloseBtn", "G O T   I T !");
+  tutorialCloseBtn.width = "160px";
+  tutorialCloseBtn.height = "44px";
+  tutorialCloseBtn.cornerRadius = 4;
+  tutorialCloseBtn.background = "rgba(40, 50, 60, 0.8)";
+  tutorialCloseBtn.thickness = 1;
+  tutorialCloseBtn.color = "#ff9966";
+  tutorialCloseBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  if (tutorialCloseBtn.textBlock) {
+    tutorialCloseBtn.textBlock.fontFamily = "'Bebas Neue', 'Arial Black', sans-serif";
+    tutorialCloseBtn.textBlock.fontSize = 20;
+    tutorialCloseBtn.textBlock.color = "#ff9966";
+  }
+  tutorialStack.addControl(tutorialCloseBtn);
+
+  tutorialCloseBtn.onPointerEnterObservable.add(() => {
+    tutorialCloseBtn.background = "rgba(60, 80, 100, 0.9)";
+    if (tutorialCloseBtn.textBlock) tutorialCloseBtn.textBlock.color = "#ffffff";
+  });
+  tutorialCloseBtn.onPointerOutObservable.add(() => {
+    tutorialCloseBtn.background = "rgba(40, 50, 60, 0.8)";
+    if (tutorialCloseBtn.textBlock) tutorialCloseBtn.textBlock.color = "#ff9966";
+  });
+  tutorialCloseBtn.onPointerUpObservable.add(() => {
+    tutorialOverlay.isVisible = false;
+  });
+
   // Units
   const units: Unit[] = [];
 
