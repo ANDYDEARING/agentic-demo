@@ -226,6 +226,21 @@ The How To overlay uses `ScrollViewer` from `@babylonjs/gui` with:
     - Added `boost: state.selectedBoost` to `syncSelectionsFromStates()`
   - **Location**: `src/scenes/LoadoutScene.ts` - module state section and `syncSelectionsFromStates()`
 
+- Bug fixes and AI refactor
+  - **Gunshot sound fix**: Added `sound.load()` preloading for all sound effects to ensure first play works
+  - **Camera rotation fix**: LoadoutScene preview camera stops auto-rotating permanently once user touches it
+  - **Player turn messages**: Shows "Player 1 Turn" / "Player 2 Turn" / "Computer Turn" on team changes (not every unit)
+  - **AI refactored to clean 4-step decision flow** (`src/battle/controllers.ts`):
+    1. **Kill check** (universal) - prioritizes kills, tracks pending damage across actions
+    2. **Class ability** (class-specific) - operator: conceal, soldier: cover only if can't reach+attack, medic: heal
+    3. **Attack** (universal) - attack if enemy in range
+    4. **Move/Position** (class-specific with default) - medic positions behind allies, others move toward attack positions
+  - **Pending kill tracking**: Enemies with lethal pending damage are filtered from targets and pathfinding
+  - **Pathfinding through dead enemies**: `getValidMoveTiles()` accepts `ignoreUnitIds` for soon-to-be-dead enemies
+  - **Melee pathfinding**: New `selectMoveForMelee()` prioritizes tiles from which unit can actually attack
+  - **Soldier smarter cover**: Only covers when can't reach combat within remaining actions
+  - **No wasted attacks**: Second action re-evaluates targets excluding pending kills
+
 ### 2026-01-30
 - Added "Quick How To" button and overlay to TitleScene
   - **How To overlay**: Shows game instructions with scrollable text
