@@ -102,6 +102,16 @@ The How To overlay uses `ScrollViewer` from `@babylonjs/gui` with:
 
 ## Conversation Log
 
+### 2026-02-01
+- Fixed iOS audio resume after sleep/background
+  - **Problem**: Music wouldn't resume when iOS device woke from sleep, even with user interaction handlers
+  - **Root cause**: iOS Safari WebKit quirk - audio context won't re-enable unless there's visible DOM activity
+  - **Discovery process**: Added debug overlay to diagnose, found music worked WITH overlay visible but NOT when hidden
+  - **What doesn't work**: Hidden elements, off-screen elements, tiny/invisible elements, layout recalc tricks
+  - **What works**: A visible on-screen scroll container (`overflow-y: auto`) with innerHTML + scrollTop updates
+  - **Solution**: 4x4 pixel black element in bottom-right corner that pulses on visibility change
+  - **Location**: `src/main.ts` - `pulseForAudio()` function and iOS Audio Resume Workaround section
+
 ### 2026-01-30
 - Added "Quick How To" button and overlay to TitleScene
   - **How To overlay**: Shows game instructions with scrollable text

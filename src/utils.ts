@@ -7,6 +7,7 @@
 
 import { Color3, Color4, Scene, RenderTargetTexture, ArcRotateCamera, Vector3, AbstractMesh, Observer } from "@babylonjs/core";
 import { AdvancedDynamicTexture, ScrollViewer, StackPanel, Rectangle, Image, TextBlock, Control, Button } from "@babylonjs/gui";
+import { SCROLLBAR_COLOR, SCROLLBAR_BACKGROUND, SCROLLBAR_SIZE } from "./config/constants";
 
 // =============================================================================
 // COLOR CONVERSION
@@ -243,8 +244,18 @@ export function createMusicPlayer(
  * @param audio - Audio element to play
  */
 export function playSfx(audio: HTMLAudioElement): void {
-  audio.currentTime = 0;
-  audio.play();
+  // Clone the audio element to allow overlapping sounds
+  // This fixes issues where rapid sounds don't play or only one plays
+  const clone = audio.cloneNode() as HTMLAudioElement;
+  clone.volume = audio.volume;
+  clone.play().catch(() => {
+    // Ignore autoplay restrictions - sound simply won't play
+  });
+  // Clean up clone after it finishes to prevent memory buildup
+  clone.onended = () => {
+    clone.onended = null;
+    clone.src = "";
+  };
 }
 
 // =============================================================================
@@ -326,18 +337,19 @@ export function enableTouchScroll(
   options: TouchScrollOptions = {}
 ): TouchScrollCleanup {
   const {
-    hideScrollbar = true,
+    hideScrollbar = false,
     onScrollStart,
     onScrollEnd,
     scrollEndDelay = 150
   } = options;
 
-  // Hide scrollbar if requested
+  // Apply scrollbar styling (visible by default, with centralized colors)
   if (hideScrollbar) {
     scrollViewer.barSize = 0;
     scrollViewer.barBackground = "transparent";
     scrollViewer.barColor = "transparent";
   }
+  // Note: When not hiding, scrollbar styling is handled by the caller
 
   let isDragging = false;
   let lastY = 0;
@@ -754,6 +766,16 @@ export function createResponsiveOverlay(
   scrollViewer.thickness = 0;
   scrollViewer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
   scrollViewer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+  scrollViewer.barSize = SCROLLBAR_SIZE;
+  scrollViewer.barColor = SCROLLBAR_COLOR;
+  scrollViewer.barBackground = SCROLLBAR_BACKGROUND;
+  // Hide horizontal scrollbar - Babylon.js GUI has no official API for this.
+  // forceHorizontalBar/forceVerticalBar only force bars ON, not OFF.
+  // horizontalBar.isVisible = false doesn't work (property is ignored).
+  // Must use internal properties to hide the bar space and corner drag space.
+  const sv = scrollViewer as any;
+  if (sv._horizontalBarSpace) sv._horizontalBarSpace.isVisible = false;
+  if (sv._dragSpace) sv._dragSpace.isVisible = false;
   container.addControl(scrollViewer);
 
   const contentStack = new StackPanel("contentStack");
@@ -761,6 +783,8 @@ export function createResponsiveOverlay(
   contentStack.isVertical = true;
   contentStack.paddingTop = "10px";
   contentStack.paddingBottom = "20px";
+  contentStack.clipChildren = true;
+  contentStack.clipContent = true;
   scrollViewer.addControl(contentStack);
 
   const contentText = new TextBlock("content");
@@ -770,6 +794,7 @@ export function createResponsiveOverlay(
   contentText.textWrapping = true;
   contentText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
   contentText.resizeToFit = true;
+  contentText.width = "90%";
   contentText.paddingLeft = "5%";
   contentText.paddingRight = "5%";
   contentStack.addControl(contentText);
@@ -869,29 +894,29 @@ export function createResponsiveOverlay(
     const isLandscape = size.width > size.height;
     const baseUnit = Math.min(size.width, size.height);
 
-    // Container sizing
+    // Container sizing - larger in portrait to fit stacked buttons
     container.width = isLandscape ? "60%" : "90%";
-    container.height = isLandscape ? "85%" : "80%";
+    container.height = isLandscape ? "85%" : "92%";
 
     // Header
     header.width = isLandscape ? "70%" : "100%";
-    header.height = isLandscape ? "12%" : "12%";
+    header.height = isLandscape ? "12%" : "10%";
     title.fontSize = baseUnit * 0.05;
     // Use pixel heights in StackPanel (not percentages) to avoid Babylon warnings
-    const headerHeight = size.height * (isLandscape ? 0.12 : 0.12) * 0.85;
+    const headerHeight = size.height * (isLandscape ? 0.12 : 0.10) * 0.85;
     title.height = `${Math.round(headerHeight * 0.7)}px`;
     divider.height = "2px";
 
     // Scroll area
     scrollViewer.width = isLandscape ? "70%" : "100%";
     scrollViewer.height = isLandscape ? "65%" : "68%";
-    scrollViewer.top = isLandscape ? "12%" : "12%";
+    scrollViewer.top = isLandscape ? "12%" : "10%";
     contentText.fontSize = baseUnit * 0.028;
 
-    // Footer
-    footer.height = isLandscape ? "15%" : "15%";
+    // Footer - more height in portrait to fit stacked buttons + safe area
+    footer.height = isLandscape ? "15%" : "18%";
     footer.isVertical = !isLandscape;
-    footer.paddingBottom = "2%";
+    footer.paddingBottom = isLandscape ? "2%" : "4%";
 
     // Button sizing
     const btnWidth = isLandscape ? baseUnit * 0.25 : baseUnit * 0.4;

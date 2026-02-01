@@ -8,6 +8,123 @@ import type { Loadout, SceneName, GameMode } from "./types";
 // Re-export for backwards compatibility
 export type { SceneName } from "./types";
 
+// ============================================
+// GLOBAL AUDIO MANAGEMENT
+// ============================================
+// Handles pausing audio when app is backgrounded/locked
+
+/** Currently playing music element (set by scenes) */
+let activeMusic: HTMLAudioElement | null = null;
+let musicWasPaused = false;
+
+// ============================================
+// iOS AUDIO RESUME WORKAROUND
+// ============================================
+// PROBLEM: iOS Safari blocks audio.play() after the app returns from sleep/background,
+// even though the audio was user-initiated originally. The standard fix (resuming on
+// user interaction) wasn't working reliably.
+//
+// DISCOVERY: Through debugging, we found that having a VISIBLE scroll container on
+// screen that receives DOM updates (innerHTML + scrollTop changes) somehow "wakes up"
+// the iOS audio context and allows play() to succeed automatically on visibility change.
+//
+// WHAT DOESN'T WORK:
+// - Hidden elements (display: none)
+// - Off-screen elements (left: -9999px)
+// - Tiny invisible elements (1px, opacity: 0.01)
+// - Just forcing layout recalc (offsetHeight)
+// - Just updating textContent
+//
+// WHAT WORKS:
+// - A visible on-screen element (even 4x4 pixels)
+// - With overflow-y: auto (scroll container)
+// - Updated via innerHTML (with <br> tags to create DOM nodes)
+// - With scrollTop manipulation
+//
+// This is likely a WebKit bug/quirk where visible scroll container activity triggers
+// some internal state that re-enables the audio context. We use a tiny 4x4 black pixel
+// in the corner that's practically invisible but technically rendered on-screen.
+
+let audioPulseElement: HTMLDivElement | null = null;
+let pulseCounter = 0;
+
+function initAudioPulse() {
+  if (audioPulseElement) return;
+  audioPulseElement = document.createElement("div");
+  audioPulseElement.style.cssText = `
+    position: fixed;
+    bottom: 0;
+    right: 0;
+    width: 4px;
+    height: 4px;
+    overflow-y: auto;
+    background: #000;
+    color: #000;
+    font-size: 1px;
+    pointer-events: none;
+    z-index: 99999;
+  `;
+  audioPulseElement.innerHTML = ".<br>";
+  document.body.appendChild(audioPulseElement);
+}
+
+/** Pulse the visible element to wake iOS audio context */
+function pulseForAudio() {
+  if (!audioPulseElement) initAudioPulse();
+  if (audioPulseElement) {
+    pulseCounter++;
+    audioPulseElement.innerHTML += `${pulseCounter}<br>`;
+    audioPulseElement.scrollTop = audioPulseElement.scrollHeight;
+  }
+}
+
+// Initialize immediately
+initAudioPulse();
+
+/** Register the currently playing music (call from scenes when music starts) */
+export function registerActiveMusic(audio: HTMLAudioElement | null): void {
+  activeMusic = audio;
+  musicWasPaused = false;
+}
+
+/** Handle visibility changes to pause music */
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    // Page is hidden (backgrounded, locked, tab switched)
+    if (activeMusic && !activeMusic.paused) {
+      musicWasPaused = true;
+      activeMusic.pause();
+    }
+  } else {
+    // Page is visible again - pulse DOM to wake iOS audio, then resume
+    pulseForAudio();
+
+    if (activeMusic && musicWasPaused) {
+      activeMusic.play().then(() => {
+        musicWasPaused = false;
+      }).catch(() => {
+        // Autoplay blocked - will resume on next user interaction
+      });
+    }
+  }
+});
+
+/** Resume music on user interaction (required for iOS after visibility change) */
+function resumeMusicOnInteraction() {
+  if (activeMusic && musicWasPaused && activeMusic.paused) {
+    pulseForAudio();
+    activeMusic.play().then(() => {
+      musicWasPaused = false;
+    }).catch(() => {
+      // Still blocked - will try again on next interaction
+    });
+  }
+}
+
+// Listen for user interactions to resume music (iOS requirement)
+document.addEventListener("touchstart", resumeMusicOnInteraction, { passive: true });
+document.addEventListener("click", resumeMusicOnInteraction);
+
 const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 const engine = new Engine(canvas, true, {
   // Reduce shader complexity and improve stability

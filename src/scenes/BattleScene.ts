@@ -17,6 +17,7 @@ import {
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import { AdvancedDynamicTexture, TextBlock, Button, Rectangle, StackPanel, Grid, Control, ScrollViewer } from "@babylonjs/gui";
+import { registerActiveMusic } from "../main";
 import {
   type Loadout,
   type UnitSelection,
@@ -180,6 +181,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   if (battleMusic.paused) {
     battleMusic.play();
   }
+  // Register with global audio manager for pause on background
+  registerActiveMusic(battleMusic);
 
   scene.onDisposeObservable.add(() => {
     sceneDisposed = true;
@@ -1608,9 +1611,10 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     unit.hasMoved = false;
     unit.hasAttacked = false;
 
-    // Cancel Cover at the start of this unit's turn
+    // Cancel Cover at the start of this unit's turn (before any actions can be queued)
     if (unit.isCovering) {
       console.log(`${unit.team} ${unit.unitClass}'s Cover ends at start of turn.`);
+      playSfx(sfx.coverDown);
       endCover(unit);
     }
 
