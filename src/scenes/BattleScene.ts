@@ -2410,6 +2410,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
     overlay.height = "100%";
     overlay.thickness = 0; // No border on overlay (screen border handles it)
     overlay.background = "rgba(0,0,0,0.7)";
+    overlay.zIndex = 300; // Above battle messages (100) and other UI
     gui.addControl(overlay);
 
     const container = new StackPanel();
