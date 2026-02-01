@@ -157,11 +157,12 @@ The title screen has a "Quick How To" button that shows game instructions. At th
 
 ### Updating the For Nerds Section
 
-When game mechanics change, update `getNerdText()` in `src/scenes/TitleScene.ts`. The function pulls values dynamically from:
+When game mechanics change, update `getNerdContent()` in `src/config/overlayContent.ts`. The function pulls values dynamically from:
 
-- **Stats**: `CLASS_DATA` from `src/types/index.ts` (HP, ATK, Move, Heal per class)
-- **Combat**: `MELEE_DAMAGE_MULTIPLIER`, `BOOST_MULTIPLIER` from `src/config/constants.ts`
-- **Turn system**: `ACCUMULATOR_THRESHOLD`, `ACTIONS_PER_TURN`, `SPEED_BONUS_PER_UNUSED_ACTION`, `BASE_UNIT_SPEED`
+- **Stats**: `CLASS_BASE_STATS` from `src/config/balance.ts` (HP, ATK, Speed, Move, Heal per class)
+- **Weapons**: `WEAPON_DATA` from `src/config/balance.ts` (damage multipliers)
+- **Boosts**: `BOOST_DATA` from `src/config/balance.ts` (stat multipliers)
+- **Turn system**: `ACCUMULATOR_THRESHOLD`, `ACTIONS_PER_TURN`, `SPEED_BONUS_PER_UNUSED_ACTION` from `src/config/constants.ts`
 - **Grid**: `GRID_SIZE`
 
 ### Ability Logic Reference (for accuracy)
@@ -190,9 +191,62 @@ The How To overlay uses `ScrollViewer` from `@babylonjs/gui` with:
 - `wheelPrecision` for mouse wheel sensitivity
 - `barSize`, `barColor` for scrollbar styling
 
+## Balance Configuration
+
+All game balance values are centralized in `/src/config/balance.ts` for easy tuning:
+
+### Class Base Stats (`CLASS_BASE_STATS`)
+Per-class values: `hp`, `attack`, `speed`, `moveRange`, `healAmount`
+```typescript
+soldier:  { hp: 80, attack: 25, speed: 0.9, moveRange: 2, healAmount: 0 }
+operator: { hp: 75, attack: 20, speed: 1.0, moveRange: 3, healAmount: 0 }
+medic:    { hp: 70, attack: 18, speed: 1.1, moveRange: 4, healAmount: 25 }
+```
+
+### Weapons (`WEAPON_DATA`)
+- `sword`: 2.0x damage multiplier, melee pattern (adjacent tiles)
+- `pistol`: 1.0x damage multiplier, ranged pattern (LOS, not adjacent)
+
+### Boosts (`BOOST_DATA`)
+- `tough`: +25% HP
+- `deadly`: +25% ATK
+- `quick`: +20% Speed
+
+### How Stats Flow
+1. `CLASS_BASE_STATS` in `balance.ts` is the single source of truth
+2. `CLASS_DATA` in `types/index.ts` spreads these stats (adds name, description, ability, modelFile)
+3. Unit creation applies boost multipliers to base stats
+4. `getUnitDescription()` in `loadout/constants.ts` calculates and displays boosted stats
+
+### Headless Simulation
+Run `npm run simulation <count>` to test balance with AI vs AI battles:
+- Reports win rates by class, weapon, boost
+- Reports class+weapon and class+boost combo win rates
+- Draws occur when MAX_TURNS (100) reached with equal HP
+
 ## Conversation Log
 
-### 2026-02-01
+### 2026-02-01 (continued)
+- Balance configuration consolidation
+  - **Created `/src/config/balance.ts`** as single source of truth for all game balance values
+    - `CLASS_BASE_STATS`: Per-class hp, attack, speed, moveRange, healAmount
+    - `WEAPON_DATA`: Weapon types with damage multipliers and attack patterns
+    - `BOOST_DATA`: Boost types with stat multipliers
+    - Helper functions: `calculateUnitStats()`, `calculateWeaponDamage()`
+  - **Fixed stats passthrough**: `CLASS_DATA` in `types/index.ts` now imports and spreads `CLASS_BASE_STATS`
+  - **Fixed hardcoded speed**: Unit creation now uses `classData.speed` instead of hardcoded `1`
+  - **Removed legacy fields**: `attackRange` removed (weapon pattern determines attack style), `BASE_UNIT_SPEED` removed
+  - **Dynamic content updates**:
+    - `getUnitDescription()` now shows stats line: `[HP]: XX  [ATK]: XX  [SPD]: X  [MOV]: X  [HEAL]: XX`
+    - Stats calculated with boost multipliers applied
+    - For Nerds damage formula made generic with example
+  - **UI fixes**:
+    - Game over overlay z-index set to 300 (above battle messages at 100)
+    - Fixed copy mismatch between web/mobile in customize editor (both use `getUnitDescription()`)
+  - **Simulation improvements**:
+    - Added class+boost combo tracking and reporting
+    - Reports sorted by win rate
+
 - Refactored BattleScene for context optimization and headless simulation prep
   - **Goal**: Break up the 5500-line BattleScene.ts into smaller, reusable modules
   - **Created `/src/scenes/battle/`** with 13 extracted modules:

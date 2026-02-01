@@ -670,15 +670,16 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
   const commandQueue = new CommandQueue();
 
   // Helper to get unit ID (for command serialization)
+  // Uses loadoutIndex for stability - array index shifts when units die
   function getUnitId(unit: Unit): string {
-    return `${unit.team}-${units.indexOf(unit)}`;
+    return `${unit.team}-${unit.loadoutIndex}`;
   }
 
   // Helper to find unit by ID
   function findUnitById(id: string): Unit | undefined {
-    const [team, indexStr] = id.split("-");
-    const index = parseInt(indexStr, 10);
-    return units.find((u, i) => u.team === team && i === index);
+    const [team, loadoutIndexStr] = id.split("-");
+    const loadoutIndex = parseInt(loadoutIndexStr, 10);
+    return units.find(u => u.team === team && u.loadoutIndex === loadoutIndex);
   }
 
   // ============================================
