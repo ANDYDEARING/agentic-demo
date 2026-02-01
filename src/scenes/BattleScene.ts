@@ -2948,8 +2948,6 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
   // Execute heal (called during execution phase)
   // skipCameraOut: if true, don't transition camera out (next action has same target)
-  // Execute heal (called during execution phase)
-  // skipCameraOut: if true, don't transition camera out (next action has same target)
   function executeHeal(healer: Unit, target: Unit, onComplete: () => void, skipCameraOut = false): void {
     // Helper to finish the action
     const finishAction = () => {
