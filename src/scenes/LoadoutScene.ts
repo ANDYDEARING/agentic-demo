@@ -83,6 +83,20 @@ let loadoutMusic: MusicPlayer | null = null;
 let pendingEditorRestore: { playerId: "player1" | "player2"; unitIndex: number } | null = null;
 let orientationReloadInProgress = false;
 
+// Loadout state that persists across orientation changes
+let persistedUnitStates: Record<string, UnitState> | null = null;
+let persistedSelections: Loadout | null = null;
+let persistedCurrentTeam: "player1" | "player2" = "player1";
+let persistedIsP2Computer = true;
+
+/** Reset loadout state (call when leaving loadout scene for battle) */
+export function resetLoadoutState(): void {
+  persistedUnitStates = null;
+  persistedSelections = null;
+  persistedCurrentTeam = "player1";
+  persistedIsP2Computer = true;
+}
+
 // =============================================================================
 // MAIN SCENE FUNCTION
 // =============================================================================
@@ -221,40 +235,9 @@ export function createLoadoutScene(
   const gui = AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
   // ============================================
-  // STATE
+  // STATE (uses persisted state if available, for orientation reloads)
   // ============================================
   const { mode: gameMode, humanTeam } = getGameMode();
-
-  const selections: Loadout = {
-    player1: [],
-    player2: [],
-    player1TeamColor: TEAM_COLORS[DEFAULT_PLAYER1_COLOR_INDEX].hex,
-    player2TeamColor: TEAM_COLORS[DEFAULT_PLAYER2_COLOR_INDEX].hex,
-    gameMode,
-    humanTeam,
-  };
-
-  let currentTeam: "player1" | "player2" = "player1";
-  let isP2Computer = true;
-
-  // Unit states
-  const defaultClasses = ["soldier", "operator", "medic"] as const;
-  const defaultBoosts = [0, 1, 2];
-  const defaultStyles = ["ranged", "melee", "ranged"] as const;
-
-  const unitStates: Record<string, UnitState> = {};
-  for (const playerId of ["player1", "player2"] as const) {
-    for (let i = 0; i < UNITS_PER_TEAM; i++) {
-      const key = `${playerId}_${i}`;
-      unitStates[key] = {
-        selectedClass: defaultClasses[i] || "soldier",
-        selectedBoost: defaultBoosts[i] ?? 0,
-        selectedStyle: defaultStyles[i] || "ranged",
-        customization: randomizeAppearance(defaultStyles[i] || "ranged"),
-        hasBeenCustomized: false,
-      };
-    }
-  }
 
   function randomizeAppearance(style: "ranged" | "melee"): UnitCustomization {
     return {
@@ -268,6 +251,45 @@ export function createLoadoutScene(
     };
   }
 
+  // Initialize unit states (fresh or from persisted state)
+  const defaultClasses = ["soldier", "operator", "medic"] as const;
+  const defaultBoosts = [0, 1, 2];
+  const defaultStyles = ["ranged", "melee", "ranged"] as const;
+
+  if (!persistedUnitStates) {
+    persistedUnitStates = {};
+    for (const playerId of ["player1", "player2"] as const) {
+      for (let i = 0; i < UNITS_PER_TEAM; i++) {
+        const key = `${playerId}_${i}`;
+        persistedUnitStates[key] = {
+          selectedClass: defaultClasses[i] || "soldier",
+          selectedBoost: defaultBoosts[i] ?? 0,
+          selectedStyle: defaultStyles[i] || "ranged",
+          customization: randomizeAppearance(defaultStyles[i] || "ranged"),
+          hasBeenCustomized: false,
+        };
+      }
+    }
+  }
+  const unitStates = persistedUnitStates;
+
+  // Initialize selections (fresh or from persisted state)
+  if (!persistedSelections) {
+    persistedSelections = {
+      player1: [],
+      player2: [],
+      player1TeamColor: TEAM_COLORS[DEFAULT_PLAYER1_COLOR_INDEX].hex,
+      player2TeamColor: TEAM_COLORS[DEFAULT_PLAYER2_COLOR_INDEX].hex,
+      gameMode,
+      humanTeam,
+    };
+  }
+  const selections = persistedSelections;
+
+  // Restore UI state from persisted values
+  let currentTeam: "player1" | "player2" = persistedCurrentTeam;
+  let isP2Computer = persistedIsP2Computer;
+
   function syncSelectionsFromStates(): void {
     for (const playerId of ["player1", "player2"] as const) {
       selections[playerId] = [];
@@ -276,6 +298,7 @@ export function createLoadoutScene(
         selections[playerId].push({
           unitClass: state.selectedClass,
           customization: { ...state.customization, combatStyle: state.selectedStyle },
+          boost: state.selectedBoost,
         });
       }
     }
@@ -417,6 +440,7 @@ export function createLoadoutScene(
 
     tabAiToggleRow.onPointerClickObservable.add(() => {
       isP2Computer = !isP2Computer;
+      persistedIsP2Computer = isP2Computer;
       if (tabAiToggleText) {
         tabAiToggleText.text = isP2Computer ? "Computer Controlled: ON" : "Computer Controlled: OFF";
         tabAiToggleText.color = isP2Computer ? COLORS.accentBlue : COLORS.textSecondary;
@@ -427,6 +451,7 @@ export function createLoadoutScene(
 
   function switchTeam(team: "player1" | "player2"): void {
     currentTeam = team;
+    persistedCurrentTeam = team;
     if (p1Tab && p2Tab) {
       p1Tab.background = team === "player1" ? COLORS.selected : COLORS.bgButton;
       p2Tab.background = team === "player2" ? COLORS.selected : COLORS.bgButton;
@@ -557,7 +582,7 @@ export function createLoadoutScene(
       setThisColor: (hex) => { selections.player2TeamColor = hex; if (p2BorderContainer) p2BorderContainer.color = hex; },
       onColorChange: () => Object.keys(previewControllers).filter(k => k.startsWith("player2_")).forEach(k => previewControllers[k].refresh()),
       isP2Computer,
-      onAiToggle: (val) => { isP2Computer = val; },
+      onAiToggle: (val) => { isP2Computer = val; persistedIsP2Computer = val; },
     });
     mainStack.addControl(p2Header.container);
 
@@ -617,7 +642,7 @@ export function createLoadoutScene(
       setThisColor: (hex) => { selections.player2TeamColor = hex; if (p2BorderContainer) p2BorderContainer.color = hex; },
       onColorChange: () => Object.keys(previewControllers).filter(k => k.startsWith("player2_")).forEach(k => previewControllers[k].refresh()),
       isP2Computer,
-      onAiToggle: (val) => { isP2Computer = val; },
+      onAiToggle: (val) => { isP2Computer = val; persistedIsP2Computer = val; },
     });
     mainStack.addControl(p2Header.container);
 
@@ -701,6 +726,8 @@ export function createLoadoutScene(
     selections.humanTeam = isP2Computer ? "player1" : "player1";
     setGameMode(selections.gameMode, selections.humanTeam);
     onStartBattle(selections);
+    // Reset persisted state so next loadout visit is fresh
+    resetLoadoutState();
   });
   startBtn.onPointerEnterObservable.add(() => { startBtn.background = COLORS.successHover; });
   startBtn.onPointerOutObservable.add(() => { startBtn.background = COLORS.success; });
