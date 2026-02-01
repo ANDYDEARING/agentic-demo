@@ -255,8 +255,11 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     coverDown: new Audio(SFX.coverDown),
     speedUp: new Audio(SFX.speedUp),
   };
-  // Set volume for all sound effects
-  Object.values(sfx).forEach(sound => sound.volume = AUDIO_VOLUMES.sfx);
+  // Set volume for all sound effects and preload them
+  Object.values(sfx).forEach(sound => {
+    sound.volume = AUDIO_VOLUMES.sfx;
+    sound.load(); // Preload to ensure sounds play on first use
+  });
   // Boost quieter effects
   sfx.concealUp.volume = Math.min(1, AUDIO_VOLUMES.sfx * 1.5);
   sfx.concealDown.volume = Math.min(1, AUDIO_VOLUMES.sfx * 1.5);
@@ -1253,6 +1256,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   // Initiative system - ACCUMULATOR_THRESHOLD imported from config
   let currentUnit: Unit | null = null;
   let lastActingTeam: Team | null = null;
+  let lastPlayerTurnTeam: Team | null = null; // For "Player X Turn" messages
   let isFirstRound = true;
   let firstRoundQueue: Unit[] = [];
 
@@ -1438,6 +1442,13 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
     // Create pulsing corner indicators for active unit
     createCornerIndicators(unit);
+
+    // Show player turn message when team changes (or at game start)
+    if (unit.team !== lastPlayerTurnTeam) {
+      const teamName = getTeamDisplayName(unit.team);
+      showBattleMessage(`${teamName} Turn`, unit.teamColor);
+      lastPlayerTurnTeam = unit.team;
+    }
 
     // Clear command queue for new turn
     commandQueue.clear();

@@ -151,17 +151,11 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
   let isDragging = false;
   let lastPointerX = 0;
   let pointerMoved = false;
-  let userControlled = false; // Pause auto-rotate after user interaction
-  let idleTimeout: ReturnType<typeof setTimeout> | null = null;
-  const IDLE_RESUME_DELAY = 10000; // 10 seconds
+  let userControlled = false; // Permanently pause auto-rotate after user interaction
 
-  function resetIdleTimer(): void {
+  function stopAutoRotation(): void {
     userControlled = true;
-    if (idleTimeout) clearTimeout(idleTimeout);
-    idleTimeout = setTimeout(() => {
-      userControlled = false;
-      totalRotation = 0; // Reset rotation counter so animation doesn't immediately cycle
-    }, IDLE_RESUME_DELAY);
+    // Never resume - once user touches camera, they control it forever
   }
 
   if (enableTouchRotation) {
@@ -169,7 +163,7 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
       isDragging = true;
       lastPointerX = info.x;
       pointerMoved = false;
-      resetIdleTimer();
+      stopAutoRotation();
     });
 
     innerContainer.onPointerMoveObservable.add((info) => {
@@ -190,7 +184,7 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
     innerContainer.onPointerClickObservable.add(() => {
       if (!pointerMoved) {
         cycleAnimation();
-        resetIdleTimer();
+        stopAutoRotation();
       }
     });
   }
@@ -439,7 +433,6 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
   }
 
   function dispose(): void {
-    if (idleTimeout) clearTimeout(idleTimeout);
     const idx = scene.customRenderTargets.indexOf(rtt);
     if (idx >= 0) {
       scene.customRenderTargets.splice(idx, 1);
