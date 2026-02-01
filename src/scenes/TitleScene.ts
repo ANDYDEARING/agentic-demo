@@ -46,7 +46,7 @@ let wasOverlayOpen = false;
 // VERSION
 // =============================================================================
 
-const VERSION = "v0.24";
+const VERSION = "v0.25";
 
 // =============================================================================
 // MAIN SCENE FUNCTION
@@ -257,7 +257,7 @@ export function createTitleScene(
 
   // Version label
   versionLabel = new TextBlock();
-  versionLabel.text = `[ DEMO - Early - NOT BALANCED ] ${VERSION}`;
+  versionLabel.text = `[ DEMO - Early ] ${VERSION}`;
   versionLabel.color = hasFadedIn ? "rgba(180, 180, 180, 1)" : "rgba(180, 180, 180, 0)";
   versionLabel.fontFamily = "'Exo 2', sans-serif";
   versionLabel.fontSize = 11;

@@ -8,7 +8,7 @@
 
 import type { BattleState, UnitState, GridPosition } from "./state";
 import { toGridKey, hasTerrain, isInBounds, getUnitAt, getTeamUnits } from "./state";
-import { ACCUMULATOR_THRESHOLD, MELEE_DAMAGE_MULTIPLIER, LOS_EPSILON } from "../config";
+import { ACCUMULATOR_THRESHOLD, MELEE_DAMAGE_MULTIPLIER, LOS_EPSILON } from "../config/constants";
 
 // =============================================================================
 // GRID HELPERS
