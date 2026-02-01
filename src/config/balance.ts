@@ -33,13 +33,13 @@ export const WEAPON_DATA: Record<WeaponType, WeaponData> = {
     id: "sword",
     name: "Sword",
     pattern: "melee",
-    damageMultiplier: 2.0,
+    damageMultiplier: 2.3,
   },
   pistol: {
     id: "pistol",
     name: "Pistol",
     pattern: "ranged",
-    damageMultiplier: 1.0,
+    damageMultiplier: 0.9,
   },
 };
 
@@ -86,7 +86,7 @@ export const BOOST_DATA: Record<BoostType, BoostData> = {
     name: "Tough",
     description: "+HP",
     stat: "hp",
-    multiplier: 0.25,
+    multiplier: 0.3,
   },
   deadly: {
     id: "deadly",
@@ -142,15 +142,15 @@ export interface ClassBaseStats {
 /** Per-class base stats - independently editable */
 export const CLASS_BASE_STATS: Record<UnitClass, ClassBaseStats> = {
   soldier: {
-    hp: 80,
-    attack: 25,
+    hp: 85,
+    attack: 26,
     speed: 0.9,
-    moveRange: 2,
+    moveRange: 3,
     healAmount: 0,
   },
   operator: {
     hp: 75,
-    attack: 20,
+    attack: 19,
     speed: 1.0,
     moveRange: 3,
     healAmount: 0,
@@ -158,7 +158,7 @@ export const CLASS_BASE_STATS: Record<UnitClass, ClassBaseStats> = {
   medic: {
     hp: 70,
     attack: 18,
-    speed: 1.1,
+    speed: 1.2,
     moveRange: 4,
     healAmount: 25,
   },
