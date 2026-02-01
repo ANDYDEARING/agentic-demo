@@ -182,3 +182,25 @@ export {
 // UI - GAME OVER
 // =============================================================================
 export { showGameOver } from "./ui/gameOver";
+
+// =============================================================================
+// CONSOLIDATED VISUAL STATE
+// =============================================================================
+export {
+  createHighlightState as createVisualHighlightState,
+  createShadowPreviewState as createVisualShadowState,
+  createAttackPreviewState as createVisualAttackPreviewState,
+  createIntentIndicatorState as createVisualIntentState,
+  createCoverVisualState,
+  createCornerIndicatorState,
+  createTurnSystemState,
+  createBattleVisualState,
+  type HighlightState as VisualHighlightState,
+  type ShadowPreviewState as VisualShadowState,
+  type AttackPreviewState as VisualAttackPreviewState,
+  type IntentIndicatorState as VisualIntentState,
+  type CoverVisualState,
+  type CornerIndicatorState,
+  type TurnSystemState,
+  type BattleVisualState,
+} from "./state";

@@ -58,8 +58,6 @@ import {
   INTENT_INDICATOR_ALPHA,
   COVER_ACTIVE_ALPHA,
   COVER_PREVIEW_ALPHA,
-  CONCEAL_ALPHA,
-  CONCEAL_EMISSIVE_SCALE,
 } from "../config";
 
 // Import centralized config - constants
@@ -154,34 +152,31 @@ import {
 // Import path: import { ... } from "./battle";
 // =============================================================================
 
-// Import extracted visual helpers (aliased to avoid conflicts with inline versions)
-// The inline versions use closure variables (units, terrainTiles, etc.) so we keep them
-// but have the extracted pure versions available for future refactoring.
+// Import extracted visual helpers
+// Animation functions are pure and can be used directly
+// faceClosestEnemy and faceAverageEnemyPosition need units array passed in
 import {
   // Terrain - available for future use
   createTerrain as _createTerrain,
   hasTerrain as _hasTerrainFromSet,
-  // Animations - pure functions, keep inline for now due to local faceTarget calls
-  playAnimation as _playAnimation,
-  playIdleAnimation as _playIdleAnimation,
-  initFacing as _initFacing,
-  applyFacing as _applyFacing,
-  faceTarget as _faceTarget,
-  faceClosestEnemy as _faceClosestEnemy,
-  faceAverageEnemyPosition as _faceAverageEnemyPosition,
-  setUnitFacing as _setUnitFacing,
-  // Unit visuals
+  // Animations - using directly (most are pure, some need units array)
+  playAnimation,
+  playIdleAnimation,
+  initFacing,
+  faceClosestEnemy,
+  faceAverageEnemyPosition,
+  setUnitFacing,
+  // Unit visuals - using directly
   UNIT_DESIGNATIONS,
-  updateHpBar as _updateHpBar,
-  applyConcealVisual as _applyConcealVisual,
-  removeConcealVisual as _removeConcealVisual,
-  resetUnitAppearance as _resetUnitAppearance,
+  updateHpBar,
+  setUnitExhausted,
+  setUnitInactive,
+  resetUnitAppearance,
+  applyConcealVisual,
+  removeConcealVisual,
 } from "./battle";
 // Suppress unused import warnings (these are available for future migration)
 void _createTerrain; void _hasTerrainFromSet;
-void _playAnimation; void _playIdleAnimation; void _initFacing; void _applyFacing;
-void _faceTarget; void _faceClosestEnemy; void _faceAverageEnemyPosition; void _setUnitFacing;
-void _updateHpBar; void _applyConcealVisual; void _removeConcealVisual; void _resetUnitAppearance;
 
 // Import from loadout constants
 import { BOOST_INFO } from "./loadout/constants";
@@ -774,105 +769,9 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   // Callback for when a unit's turn starts (set later by command menu)
   let onTurnStartCallback: ((unit: Unit) => void) | null = null;
 
-  // ============================================
-  // ANIMATION HELPERS
-  // ============================================
-
-  function playAnimation(unit: Unit, animName: string, loop: boolean, onComplete?: () => void): void {
-    if (!unit.animationGroups) {
-      // No animation groups - call onComplete immediately
-      console.warn(`No animation groups for ${unit.unitClass}`);
-      if (onComplete) onComplete();
-      return;
-    }
-
-    // Stop all current animations
-    unit.animationGroups.forEach(ag => ag.stop());
-
-    const anim = unit.animationGroups.find(ag => ag.name === animName);
-    if (anim) {
-      anim.start(loop);
-      if (onComplete && !loop) {
-        anim.onAnimationEndObservable.addOnce(() => onComplete());
-      }
-    } else {
-      // Animation not found - call onComplete immediately so game doesn't hang
-      console.warn(`Animation "${animName}" not found for ${unit.unitClass}. Available: ${unit.animationGroups.map(ag => ag.name).join(", ")}`);
-      if (onComplete) onComplete();
-    }
-  }
-
-  function playIdleAnimation(unit: Unit): void {
-    const isMelee = unit.customization?.combatStyle === "melee";
-    playAnimation(unit, isMelee ? "Idle_Sword" : "Idle_Gun", true);
-  }
-
-  // ============================================
-  // FACING SYSTEM
-  // ============================================
-
-  // Initialize facing config for a unit
-  function initFacing(unit: Unit): void {
-    const isFlipped = unit.customization?.handedness === "right";
-    unit.facing = {
-      currentAngle: 0,
-      baseOffset: 0,
-      isFlipped: isFlipped
-    };
-  }
-
-  // Apply the current facing angle to the unit's model
-  function applyFacing(unit: Unit): void {
-    if (!unit.modelRoot) return;
-    unit.modelRoot.rotationQuaternion = null;
-    unit.modelRoot.rotation.y = unit.facing.currentAngle + unit.facing.baseOffset;
-  }
-
-  // Face a specific grid position
-  function faceTarget(unit: Unit, targetX: number, targetZ: number, fromX?: number, fromZ?: number): void {
-    const startX = fromX ?? unit.gridX;
-    const startZ = fromZ ?? unit.gridZ;
-    const dx = targetX - startX;
-    const dz = targetZ - startZ;
-    if (dx === 0 && dz === 0) return;
-    unit.facing.currentAngle = Math.atan2(dx, dz);
-    applyFacing(unit);
-  }
-
-  // Face the closest living enemy
-  function faceClosestEnemy(unit: Unit): void {
-    const enemies = units.filter(u => u.team !== unit.team && u.hp > 0);
-    if (enemies.length === 0) return;
-
-    let closest = enemies[0];
-    let closestDist = Math.abs(closest.gridX - unit.gridX) + Math.abs(closest.gridZ - unit.gridZ);
-
-    for (const enemy of enemies) {
-      const dist = Math.abs(enemy.gridX - unit.gridX) + Math.abs(enemy.gridZ - unit.gridZ);
-      if (dist < closestDist) {
-        closest = enemy;
-        closestDist = dist;
-      }
-    }
-
-    faceTarget(unit, closest.gridX, closest.gridZ);
-  }
-
-  // Face the average position of all enemies (for initial spawn)
-  function faceAverageEnemyPosition(unit: Unit): void {
-    const enemies = units.filter(u => u.team !== unit.team);
-    if (enemies.length === 0) return;
-
-    const avgX = enemies.reduce((sum, e) => sum + e.gridX, 0) / enemies.length;
-    const avgZ = enemies.reduce((sum, e) => sum + e.gridZ, 0) / enemies.length;
-
-    faceTarget(unit, avgX, avgZ);
-  }
-
-  // Legacy alias for compatibility
-  function setUnitFacing(unit: Unit, targetX: number, targetZ: number, fromX?: number, fromZ?: number): void {
-    faceTarget(unit, targetX, targetZ, fromX, fromZ);
-  }
+  // Animation and facing functions are imported from ./battle/animations.ts
+  // playAnimation, playIdleAnimation, initFacing, applyFacing, faceTarget, setUnitFacing
+  // faceClosestEnemy and faceAverageEnemyPosition need units array passed in
 
   // ============================================
   // LINE OF SIGHT SYSTEM
@@ -1454,7 +1353,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     // Set initial facing for all units (face average opposing team position)
     for (const unit of units) {
       initFacing(unit);  // Initialize facing config based on handedness
-      faceAverageEnemyPosition(unit);
+      faceAverageEnemyPosition(unit, units);
       // Show model and HP bar now that facing is correct
       if (unit.modelRoot) {
         unit.modelRoot.setEnabled(true);
@@ -2197,32 +2096,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     updateActionButtons();
   }
 
-  // Helper to apply conceal visual (semi-transparent with team color tint)
-  // Uses centralized alpha and emissive values
-  function applyConcealVisual(unit: Unit): void {
-    if (unit.modelMeshes) {
-      unit.modelMeshes.forEach(mesh => {
-        if (mesh.material) {
-          const mat = mesh.material as PBRMaterial;
-          mat.alpha = CONCEAL_ALPHA;
-          mat.emissiveColor = unit.teamColor.scale(CONCEAL_EMISSIVE_SCALE);
-        }
-      });
-    }
-  }
-
-  // Helper to remove conceal visual
-  function removeConcealVisual(unit: Unit): void {
-    if (unit.modelMeshes) {
-      unit.modelMeshes.forEach(mesh => {
-        if (mesh.material) {
-          const mat = mesh.material as PBRMaterial;
-          mat.alpha = 1.0;
-          mat.emissiveColor = Color3.Black();
-        }
-      });
-    }
-  }
+  // Conceal visual functions are imported from ./battle/unitVisuals.ts
+  // applyConcealVisual, removeConcealVisual
 
   // Cover tiles tracking for visual display - per unit
   const coverMeshesByUnit: Map<Unit, Mesh[]> = new Map();
@@ -2610,54 +2485,8 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     });
   }
 
-  function setUnitExhausted(unit: Unit): void {
-    // Dim the 3D model to indicate exhausted
-    if (unit.modelMeshes) {
-      unit.modelMeshes.forEach(mesh => {
-        if (mesh.material && (mesh.material as PBRMaterial).albedoColor) {
-          // Store original if not already stored, then dim
-          const mat = mesh.material as PBRMaterial;
-          if (!mesh.metadata?.originalAlbedo) {
-            mesh.metadata = mesh.metadata || {};
-            mesh.metadata.originalAlbedo = mat.albedoColor?.clone();
-          }
-          if (mat.albedoColor) {
-            mat.albedoColor = mat.albedoColor.scale(0.4);
-          }
-        }
-      });
-    }
-  }
-
-  function setUnitInactive(unit: Unit): void {
-    // Keep normal appearance - no dimming for non-active units
-    resetUnitAppearance(unit);
-  }
-
-  function resetUnitAppearance(unit: Unit): void {
-    // Reset 3D model materials
-    if (unit.modelMeshes && unit.customization) {
-      unit.modelMeshes.forEach(mesh => {
-        if (mesh.material) {
-          const mat = mesh.material as PBRMaterial;
-          const matName = mat.name;
-
-          // Restore original colors based on material type
-          if (matName === "MainSkin") {
-            mat.albedoColor = hexToColor3(SKIN_TONES[unit.customization!.skinTone] || SKIN_TONES[4]);
-          } else if (matName === "MainHair") {
-            mat.albedoColor = hexToColor3(HAIR_COLORS[unit.customization!.hairColor] || HAIR_COLORS[0]);
-          } else if (matName === "MainEye") {
-            mat.albedoColor = hexToColor3(EYE_COLORS[unit.customization!.eyeColor] || EYE_COLORS[2]);
-          } else if (matName === "TeamMain") {
-            mat.albedoColor = unit.teamColor;
-          } else if (mesh.metadata?.originalAlbedo) {
-            mat.albedoColor = mesh.metadata.originalAlbedo.clone();
-          }
-        }
-      });
-    }
-  }
+  // Unit visual state functions imported from ./battle/unitVisuals.ts:
+  // setUnitExhausted, setUnitInactive, resetUnitAppearance
 
   function checkWinCondition(): void {
     const player1Units = units.filter(u => u.team === "player1");
@@ -2718,21 +2547,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     container.addControl(backBtn);
   }
 
-  function updateHpBar(unit: Unit): void {
-    if (unit.hpBar) {
-      const hpPercent = Math.max(0, unit.hp / unit.maxHp);
-      unit.hpBar.width = `${30 * hpPercent}px`;
-      // Update color based on HP percentage - using centralized thresholds and colors
-      if (hpPercent < HP_LOW_THRESHOLD) {
-        unit.hpBar.background = HP_BAR_RED;
-      } else if (hpPercent < HP_MEDIUM_THRESHOLD) {
-        unit.hpBar.background = HP_BAR_ORANGE;
-      } else {
-        unit.hpBar.background = HP_BAR_GREEN;
-      }
-    }
-  }
-
+  // updateHpBar imported from ./battle/unitVisuals.ts
   // updateTurnIndicator removed - info now shown in command menu popup
 
   function canSelectUnit(unit: Unit): boolean {
@@ -2994,7 +2809,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
       if (unit.hp > 0) {  // Only check if unit is still alive
         const coverTriggered = checkAndTriggerCoverReaction(unit, () => {
           // Cover reaction complete - end turn immediately (skip remaining actions)
-          faceClosestEnemy(unit);
+          faceClosestEnemy(unit, units);
           isExecutingActions = false;
           endCurrentUnitTurn();
         });
@@ -3008,7 +2823,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
     function processNextAction(index: number): void {
       if (index >= actions.length) {
-        faceClosestEnemy(unit);
+        faceClosestEnemy(unit, units);
         isExecutingActions = false;
         endCurrentUnitTurn();
         return;
@@ -3432,7 +3247,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
 
     onQueueComplete() {
       if (turnState) {
-        faceClosestEnemy(turnState.unit);
+        faceClosestEnemy(turnState.unit, units);
       }
       isExecutingActions = false;
       endCurrentUnitTurn();
@@ -3441,7 +3256,7 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     checkReactions(onReactionComplete) {
       if (!turnState || turnState.unit.hp <= 0) return false;
       return checkAndTriggerCoverReaction(turnState.unit, () => {
-        faceClosestEnemy(turnState!.unit);
+        faceClosestEnemy(turnState!.unit, units);
         isExecutingActions = false;
         endCurrentUnitTurn();
         onReactionComplete();

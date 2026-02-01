@@ -34,9 +34,81 @@ npx tsc --noEmit # Type check only
 ```
 /docs                    - Requirements and design documents
 /src
-  /scenes               - Babylon.js scene files (TitleScene, LoadoutScene, BattleScene)
+  /battle               - Pure game logic (headless simulation ready)
+    state.ts            - UnitState, BattleState types
+    rules.ts            - Movement, LOS, combat, turn system
+    commands.ts         - Command pattern for actions
+    controllers.ts      - Controller abstraction (Human/AI)
+  /scenes
+    /battle             - Visual helpers for BattleScene
+      terrain.ts        - Grid terrain generation
+      animations.ts     - Animation playback, facing system
+      unitVisuals.ts    - Unit spawning, HP bars, models
+      camera.ts         - Dramatic camera, pan/rotate
+      highlights.ts     - Tile highlighting, shadow preview
+      coverVisuals.ts   - Cover ability visualization
+      ui/*.ts           - UI components (turnOrder, actionButtons, etc.)
+      index.ts          - Re-exports all visual helpers
+    /loadout            - LoadoutScene helpers
+    BattleScene.ts      - Main battle orchestrator (~5500 lines)
+    LoadoutScene.ts     - Loadout screen
+    TitleScene.ts       - Title screen
   main.ts               - Entry point, engine setup
 ```
+
+## Battle Architecture (Headless Simulation Ready)
+
+The battle system is split into two layers to support future headless simulations for AI training and balance testing:
+
+### Pure Logic Layer (`/src/battle/`)
+Contains game rules with **no Babylon.js dependencies**:
+- `state.ts` - Data types for units and battle state
+- `rules.ts` - LOS, pathfinding, damage calculation, turn order
+- `commands.ts` - Command pattern for queueable actions
+- `controllers.ts` - Human vs AI controller abstraction
+
+### Visual Layer (`/src/scenes/battle/`)
+Contains rendering code that **only handles visuals**:
+- `terrain.ts` - Creates terrain meshes from positions
+- `animations.ts` - Plays animations, manages facing
+- `unitVisuals.ts` - Spawns 3D models, HP bars
+- `camera.ts` - Dramatic camera transitions
+- `highlights.ts` - Tile highlighting system
+- `coverVisuals.ts` - Cover ability visualization
+- `ui/*.ts` - All UI components
+
+### Current State & Future Migration
+
+**Current**: `BattleScene.ts` still contains inline versions of many functions due to closure variable dependencies (`units`, `terrainTiles`, `turnState`, etc.). The extracted modules are imported with `_` prefixes and available but not yet wired up.
+
+**To fully migrate** (enabling headless simulation):
+1. Create a `BattleState` object that holds all game state
+2. Pass state to extracted functions instead of using closures
+3. Replace inline functions with imports from `/src/scenes/battle/`
+4. For headless mode: use only `/src/battle/` (pure logic)
+5. For visual mode: use both layers, with visual layer calling pure logic
+
+**Example migration pattern**:
+```typescript
+// Before (closure-based):
+function faceClosestEnemy(unit: Unit): void {
+  const enemies = units.filter(u => u.team !== unit.team);  // closure
+  // ...
+}
+
+// After (state-based):
+import { faceClosestEnemy } from "./battle";
+faceClosestEnemy(unit, battleState.units);  // explicit state
+```
+
+**Extracted modules available** (import from `./battle`):
+- `createTerrain`, `hasTerrain`
+- `playAnimation`, `playIdleAnimation`, `initFacing`, `faceTarget`, `faceClosestEnemy`
+- `createUnit`, `updateHpBar`, `applyConcealVisual`, `removeConcealVisual`
+- `createBattleCamera`, `transitionToDramaticCamera`, `transitionFromDramaticCamera`
+- `createHighlightMaterials`, `highlightTile`, `createShadowPreview`
+- `createCoverBorder`, `showCoverPreview`, `updateHazardStripes`
+- UI: `createTurnOrderUI`, `createActionButtonsUI`, `createStatusBar`, `showGameOver`
 
 ## Architecture Decisions
 
@@ -103,6 +175,32 @@ The How To overlay uses `ScrollViewer` from `@babylonjs/gui` with:
 ## Conversation Log
 
 ### 2026-02-01
+- Refactored BattleScene for context optimization and headless simulation prep
+  - **Goal**: Break up the 5500-line BattleScene.ts into smaller, reusable modules
+  - **Created `/src/scenes/battle/`** with 13 extracted modules:
+    - `terrain.ts` - Grid terrain generation algorithm
+    - `animations.ts` - Animation playback and facing system
+    - `unitVisuals.ts` - Unit spawning, models, HP bars, conceal visuals
+    - `camera.ts` - Battle camera, dramatic transitions, pan/rotate toggle
+    - `highlights.ts` - Tile highlighting, shadow preview, intent indicators
+    - `coverVisuals.ts` - Cover ability visualization, hazard stripes
+    - `ui/turnOrder.ts` - Turn order modal and prediction
+    - `ui/battleMessages.ts` - Floating battle messages
+    - `ui/actionButtons.ts` - Cancel/Execute buttons, queued actions
+    - `ui/statusBar.ts` - Current unit status bar
+    - `ui/cameraToggle.ts` - Camera mode toggle button
+    - `ui/actionCounter.ts` - Action counter display
+    - `ui/gameOver.ts` - Game over overlay
+    - `index.ts` - Re-exports all modules
+  - **Architecture**: Pure game logic in `/src/battle/`, visual rendering in `/src/scenes/battle/`
+  - **Current state**:
+    - Animation functions fully migrated (playAnimation, playIdleAnimation, initFacing, setUnitFacing, faceClosestEnemy, faceAverageEnemyPosition)
+    - Unit visual functions fully migrated (updateHpBar, setUnitExhausted, setUnitInactive, resetUnitAppearance, applyConcealVisual, removeConcealVisual)
+    - Created `/src/scenes/battle/state.ts` with consolidated visual state types (BattleVisualState, HighlightState, etc.)
+    - Remaining: highlight, cover visual, shadow preview, intent indicator functions (use closure variables for tiles, scene)
+  - **Migration pattern**: Pass `units` array to functions that need it (e.g., `faceClosestEnemy(unit, units)`)
+  - **Documentation**: Added "Battle Architecture" section to CLAUDE.md
+
 - Fixed iOS audio resume after sleep/background
   - **Problem**: Music wouldn't resume when iOS device woke from sleep, even with user interaction handlers
   - **Root cause**: iOS Safari WebKit quirk - audio context won't re-enable unless there's visible DOM activity
