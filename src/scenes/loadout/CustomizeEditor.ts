@@ -735,6 +735,7 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
       cameraTarget: new Vector3(0, 0.95, 0),
       getTeamColor: () => getTeamColor(editingPlayerId),
       getState: () => editingState!,
+      enableTouchRotation: true, // Allow user to rotate with touch/drag
       disableMaterialIBL,
       registerForCleanup,
       isSceneDisposed,

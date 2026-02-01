@@ -35,6 +35,8 @@ export interface UnitPreviewConfig {
   onLoadStart?: () => void;
   onLoadComplete?: () => void;
   isScrolling?: () => boolean;
+  /** Enable touch/drag to rotate camera (editor only) */
+  enableTouchRotation?: boolean;
   disableMaterialIBL: (meshes: AbstractMesh[]) => void;
   registerForCleanup: (meshes: AbstractMesh[], anims: AnimationGroup[]) => void;
   isSceneDisposed: () => boolean;
@@ -73,6 +75,7 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
     onLoadStart,
     onLoadComplete,
     isScrolling = () => false,
+    enableTouchRotation = false,
     disableMaterialIBL,
     registerForCleanup,
     isSceneDisposed,
@@ -144,6 +147,54 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
   innerContainer.isPointerBlocker = true;
   innerContainer.onPointerClickObservable.add(() => cycleAnimation());
 
+  // Touch rotation state (for editor)
+  let isDragging = false;
+  let lastPointerX = 0;
+  let pointerMoved = false;
+  let userControlled = false; // Pause auto-rotate after user interaction
+  let idleTimeout: ReturnType<typeof setTimeout> | null = null;
+  const IDLE_RESUME_DELAY = 10000; // 10 seconds
+
+  function resetIdleTimer(): void {
+    userControlled = true;
+    if (idleTimeout) clearTimeout(idleTimeout);
+    idleTimeout = setTimeout(() => {
+      userControlled = false;
+      totalRotation = 0; // Reset rotation counter so animation doesn't immediately cycle
+    }, IDLE_RESUME_DELAY);
+  }
+
+  if (enableTouchRotation) {
+    innerContainer.onPointerDownObservable.add((info) => {
+      isDragging = true;
+      lastPointerX = info.x;
+      pointerMoved = false;
+      resetIdleTimer();
+    });
+
+    innerContainer.onPointerMoveObservable.add((info) => {
+      if (!isDragging) return;
+      const deltaX = info.x - lastPointerX;
+      lastPointerX = info.x;
+      // Rotate camera based on drag (negative for natural feel)
+      camera.alpha -= deltaX * 0.01;
+      if (Math.abs(deltaX) > 2) pointerMoved = true;
+    });
+
+    innerContainer.onPointerUpObservable.add(() => {
+      isDragging = false;
+    });
+
+    // Override click to only cycle if not dragged
+    innerContainer.onPointerClickObservable.clear();
+    innerContainer.onPointerClickObservable.add(() => {
+      if (!pointerMoved) {
+        cycleAnimation();
+        resetIdleTimer();
+      }
+    });
+  }
+
   // State
   let frameCount = 0;
   let modelLoaded = false;
@@ -190,13 +241,15 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
 
     frameCount++;
 
-    // Rotate camera slowly
-    camera.alpha += rotationSpeed;
-    totalRotation += rotationSpeed;
+    // Auto-rotate camera (skip if user is in control)
+    if (!userControlled) {
+      camera.alpha += rotationSpeed;
+      totalRotation += rotationSpeed;
 
-    // After one full rotation, cycle to next animation
-    if (totalRotation >= Math.PI * 2) {
-      cycleAnimation();
+      // After one full rotation, cycle to next animation
+      if (totalRotation >= Math.PI * 2) {
+        cycleAnimation();
+      }
     }
 
     // Skip updates during scroll to prevent flickering
@@ -386,6 +439,7 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
   }
 
   function dispose(): void {
+    if (idleTimeout) clearTimeout(idleTimeout);
     const idx = scene.customRenderTargets.indexOf(rtt);
     if (idx >= 0) {
       scene.customRenderTargets.splice(idx, 1);
