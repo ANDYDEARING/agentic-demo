@@ -654,46 +654,68 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
   const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
   const clickWord = isTouchDevice ? "Tap" : "Click";
 
-  // Build tutorial text based on device type
-  const tutorialLines: string[] = [];
-  if (isTouchDevice) {
-    tutorialLines.push("Two fingers to zoom and move the camera");
-    tutorialLines.push("One finger to rotate the board");
-  } else {
-    tutorialLines.push("Mouse wheel to zoom");
-    tutorialLines.push("Hold left click + drag to move the camera");
-    tutorialLines.push("Right click + drag to rotate the board");
+  // Tutorial content structure: sections with headers and bullet points
+  interface TutorialSection {
+    header: string;
+    items: string[];
   }
-  tutorialLines.push("");  // Blank line separator
-  tutorialLines.push(`${clickWord} on blue spaces to move`);
-  tutorialLines.push(`${clickWord} on a unit to use its ability`);
-  tutorialLines.push(`${clickWord} on red spaces to attack`);
-  tutorialLines.push(`${clickWord} on green spaces to heal (Medic)`);
-  tutorialLines.push("");  // Blank line separator
-  tutorialLines.push(`Each unit gets 2 actions per turn`);
-  tutorialLines.push(`${clickWord} bottom right to end your turn`);
 
-  // Tutorial overlay container (matching Quick How To style)
+  const tutorialSections: TutorialSection[] = [
+    {
+      header: "Camera",
+      items: isTouchDevice
+        ? [
+            "Two fingers to zoom and pan",
+            "One finger to rotate the board",
+          ]
+        : [
+            "Mouse wheel to zoom",
+            "Hold left click + drag to pan",
+            "Right click + drag to rotate",
+          ],
+    },
+    {
+      header: clickWord,
+      items: [
+        "On blue spaces to move",
+        "On a unit to use its ability",
+        "On red spaces to attack",
+        "On green spaces to heal (Medic)",
+      ],
+    },
+    {
+      header: "Turns",
+      items: [
+        "Each unit gets 2 actions per turn",
+        `${clickWord} bottom left to cancel`,
+        `${clickWord} bottom right to confirm`,
+      ],
+    },
+  ];
+
+  // Tutorial overlay container (semi-transparent to show game behind)
   const tutorialOverlay = new Rectangle("tutorialOverlay");
   tutorialOverlay.width = "100%";
   tutorialOverlay.height = "100%";
-  tutorialOverlay.background = "rgba(0, 0, 0, 0.95)";
+  tutorialOverlay.background = "rgba(0, 0, 0, 0.7)";
   tutorialOverlay.thickness = 0;
   tutorialOverlay.zIndex = 200;
   gui.addControl(tutorialOverlay);
 
-  // Tutorial content panel
+  // Tutorial content panel (centered on screen)
   const tutorialPanel = new Rectangle("tutorialPanel");
   tutorialPanel.width = isTouchDevice ? "90%" : "420px";
   tutorialPanel.adaptHeightToChildren = true;
   tutorialPanel.background = "transparent";
   tutorialPanel.thickness = 0;
   tutorialPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+  tutorialPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
   tutorialOverlay.addControl(tutorialPanel);
 
   // Stack for tutorial content
   const tutorialStack = new StackPanel("tutorialStack");
   tutorialStack.width = "100%";
+  tutorialStack.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
   tutorialPanel.addControl(tutorialStack);
 
   // Title
@@ -716,24 +738,70 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
   // Spacer after divider
   const topSpacer = new Rectangle("topSpacer");
-  topSpacer.height = "20px";
+  topSpacer.height = "16px";
   topSpacer.thickness = 0;
   topSpacer.background = "transparent";
   tutorialStack.addControl(topSpacer);
 
-  // Tutorial lines
-  for (const line of tutorialLines) {
-    const textLine = new TextBlock();
-    textLine.text = line;
-    textLine.fontFamily = "'Exo 2', sans-serif";
-    textLine.fontSize = 16;
-    textLine.color = line === "" ? "transparent" : "#cccccc";
-    textLine.height = line === "" ? "16px" : "30px";
-    textLine.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-    textLine.textWrapping = true;
-    textLine.paddingLeft = "20px";
-    textLine.paddingRight = "20px";
-    tutorialStack.addControl(textLine);
+  // Render tutorial sections with headers and bullet points
+  for (let i = 0; i < tutorialSections.length; i++) {
+    const section = tutorialSections[i];
+
+    // Section header (underlined)
+    const headerContainer = new StackPanel(`headerContainer_${i}`);
+    headerContainer.width = "100%";
+    headerContainer.paddingLeft = "30px";
+    headerContainer.paddingRight = "30px";
+    tutorialStack.addControl(headerContainer);
+
+    const headerText = new TextBlock(`header_${i}`, section.header);
+    headerText.fontFamily = "'Exo 2', sans-serif";
+    headerText.fontSize = 18;
+    headerText.fontWeight = "bold";
+    headerText.color = "#ff9966";
+    headerText.height = "28px";
+    headerText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    headerContainer.addControl(headerText);
+
+    // Underline for header
+    const headerUnderline = new Rectangle(`underline_${i}`);
+    headerUnderline.width = "60px";
+    headerUnderline.height = "1px";
+    headerUnderline.background = "#ff9966";
+    headerUnderline.thickness = 0;
+    headerUnderline.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    headerContainer.addControl(headerUnderline);
+
+    // Spacer after underline
+    const underlineSpacer = new Rectangle(`underlineSpacer_${i}`);
+    underlineSpacer.height = "8px";
+    underlineSpacer.thickness = 0;
+    underlineSpacer.background = "transparent";
+    headerContainer.addControl(underlineSpacer);
+
+    // Bullet items
+    for (let j = 0; j < section.items.length; j++) {
+      const bulletLine = new TextBlock(`bullet_${i}_${j}`);
+      bulletLine.text = `•  ${section.items[j]}`;
+      bulletLine.fontFamily = "'Exo 2', sans-serif";
+      bulletLine.fontSize = 15;
+      bulletLine.color = "#cccccc";
+      bulletLine.height = "26px";
+      bulletLine.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+      bulletLine.textWrapping = true;
+      bulletLine.paddingLeft = "40px";
+      bulletLine.paddingRight = "30px";
+      tutorialStack.addControl(bulletLine);
+    }
+
+    // Spacer between sections (except after last)
+    if (i < tutorialSections.length - 1) {
+      const sectionSpacer = new Rectangle(`sectionSpacer_${i}`);
+      sectionSpacer.height = "16px";
+      sectionSpacer.thickness = 0;
+      sectionSpacer.background = "transparent";
+      tutorialStack.addControl(sectionSpacer);
+    }
   }
 
   // Spacer before button
