@@ -192,6 +192,7 @@ void _createTerrain; void _hasTerrainFromSet;
 import { BOOST_INFO } from "./loadout/constants";
 
 export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loadout: Loadout | null): Scene {
+  void canvas; // Suppress unused warning during camera experiment (normally used for touch handlers)
   const scene = new Scene(engine);
 
   // Disable environment texture to prevent rgbdDecode shader errors
@@ -3826,17 +3827,17 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     replayPreviousTurn();
   });
 
-  // Two-finger touch handling: pinch-to-zoom and pan
-  // Uses smooth interpolation for fluid movement on touch devices
-  let initialPinchDistance = 0;
-  let initialRadius = camera.radius;
-  let targetRadius = camera.radius;
-  let lastTouchCenterX = 0;
-  let lastTouchCenterY = 0;
-  const ZOOM_SMOOTH_FACTOR = 0.15; // How quickly to approach target (0-1, higher = faster)
-  const PAN_SPEED = 0.03; // Pan sensitivity
+  // ==========================================================================
+  // CUSTOM CAMERA CONTROLS - COMMENTED OUT FOR EXPERIMENT
+  // Testing Babylon.js default ArcRotateCamera behavior
+  // ==========================================================================
 
-  // Camera target bounds (keep the grid visible)
+  // Variables still needed for replay restore (suppress unused warnings)
+  let targetRadius = camera.radius; void targetRadius;
+  let targetCameraX = camera.target.x; void targetCameraX;
+  let targetCameraZ = camera.target.z; void targetCameraZ;
+
+  // Camera target bounds (keep the grid visible) - kept for reference
   const gridHalfSize = (GRID_SIZE / 2) * (TILE_SIZE + TILE_GAP);
   const TARGET_BOUNDS = {
     minX: -gridHalfSize - 2,
@@ -3844,10 +3845,19 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
     minZ: -gridHalfSize - 2,
     maxZ: gridHalfSize + 2,
   };
+  void TARGET_BOUNDS; // Suppress unused warning during experiment
+
+  /*
+  // Two-finger touch handling: pinch-to-zoom and pan
+  // Uses smooth interpolation for fluid movement on touch devices
+  let initialPinchDistance = 0;
+  let initialRadius = camera.radius;
+  let lastTouchCenterX = 0;
+  let lastTouchCenterY = 0;
+  const ZOOM_SMOOTH_FACTOR = 0.15; // How quickly to approach target (0-1, higher = faster)
+  const PAN_SPEED = 0.03; // Pan sensitivity
 
   // Smooth zoom and target interpolation each frame
-  let targetCameraX = camera.target.x;
-  let targetCameraZ = camera.target.z;
   scene.onBeforeRenderObservable.add(() => {
     // Smooth zoom
     const zoomDiff = targetRadius - camera.radius;
@@ -3929,12 +3939,15 @@ export function createBattleScene(engine: Engine, canvas: HTMLCanvasElement, loa
   canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
   canvas.addEventListener("touchmove", handleTouchMove, { passive: false });
   canvas.addEventListener("touchend", handleTouchEnd);
+  */
 
-  // Clean up touch listeners and camera animation on scene dispose
+  // Clean up camera animation on scene dispose
   scene.onDisposeObservable.add(() => {
+    /*
     canvas.removeEventListener("touchstart", handleTouchStart);
     canvas.removeEventListener("touchmove", handleTouchMove);
     canvas.removeEventListener("touchend", handleTouchEnd);
+    */
     // Cancel any ongoing dramatic camera animation
     if (dramaticCameraAnimationId !== null) {
       cancelAnimationFrame(dramaticCameraAnimationId);
