@@ -18,8 +18,8 @@ import { getClassData } from "../../../types";
 import {
   ACTIONS_PER_TURN,
   SPEED_BONUS_PER_UNUSED_ACTION,
-  MELEE_DAMAGE_MULTIPLIER,
 } from "../../../config";
+import { isMeleeWeapon, WEAPON_DATA } from "../../../config/balance";
 import { UNIT_DESIGNATIONS } from "../unitVisuals";
 
 // =============================================================================
@@ -315,10 +315,9 @@ export function updateQueuedActionsDisplay(
       const target = action.targetUnit;
       const targetDesignation = UNIT_DESIGNATIONS[target.loadoutIndex] || "?";
       const targetClass = getClassData(target.unitClass).name;
-      const isMelee = currentUnit.customization?.combatStyle === "melee";
-      const baseDamage = isMelee
-        ? currentUnit.attack * MELEE_DAMAGE_MULTIPLIER
-        : currentUnit.attack;
+      const weaponType = currentUnit.customization?.weapon ?? "pistol";
+      const isMelee = isMeleeWeapon(weaponType);
+      const baseDamage = Math.round(currentUnit.attack * WEAPON_DATA[weaponType].damageMultiplier);
 
       // Check concealed status
       const targetIsConcealed =

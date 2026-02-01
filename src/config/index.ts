@@ -11,3 +11,4 @@
 export * from "./constants";
 export * from "./colors";
 export * from "./audio";
+export * from "./balance";

@@ -239,10 +239,10 @@ export function createLoadoutScene(
   // ============================================
   const { mode: gameMode, humanTeam } = getGameMode();
 
-  function randomizeAppearance(style: "ranged" | "melee"): UnitCustomization {
+  function randomizeAppearance(weapon: "sword" | "pistol"): UnitCustomization {
     return {
       body: Math.random() > 0.5 ? "male" : "female",
-      combatStyle: style,
+      weapon: weapon,
       handedness: Math.random() > 0.5 ? "right" : "left",
       head: Math.floor(Math.random() * 4),
       hairColor: Math.floor(Math.random() * HAIR_COLORS.length),
@@ -254,7 +254,7 @@ export function createLoadoutScene(
   // Initialize unit states (fresh or from persisted state)
   const defaultClasses = ["soldier", "operator", "medic"] as const;
   const defaultBoosts = [0, 1, 2];
-  const defaultStyles = ["ranged", "melee", "ranged"] as const;
+  const defaultWeapons = ["pistol", "sword", "pistol"] as const;
 
   if (!persistedUnitStates) {
     persistedUnitStates = {};
@@ -264,8 +264,8 @@ export function createLoadoutScene(
         persistedUnitStates[key] = {
           selectedClass: defaultClasses[i] || "soldier",
           selectedBoost: defaultBoosts[i] ?? 0,
-          selectedStyle: defaultStyles[i] || "ranged",
-          customization: randomizeAppearance(defaultStyles[i] || "ranged"),
+          selectedWeapon: defaultWeapons[i] || "pistol",
+          customization: randomizeAppearance(defaultWeapons[i] || "pistol"),
           hasBeenCustomized: false,
         };
       }
@@ -297,7 +297,7 @@ export function createLoadoutScene(
         const state = unitStates[`${playerId}_${i}`];
         selections[playerId].push({
           unitClass: state.selectedClass,
-          customization: { ...state.customization, combatStyle: state.selectedStyle },
+          customization: { ...state.customization, weapon: state.selectedWeapon },
           boost: state.selectedBoost,
         });
       }

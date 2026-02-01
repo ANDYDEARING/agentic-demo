@@ -13,6 +13,7 @@ import {
   getHealableAllies,
   checkWinCondition,
 } from "./rules";
+import { isMeleeWeapon, WEAPON_DATA } from "../config/balance";
 
 // =============================================================================
 // CONTROLLER INTERFACE
@@ -188,8 +189,7 @@ export class AIController implements Controller {
         }
         // Track pending damage for attack commands
         if (action.type === "attack") {
-          const isMelee = unit.combatStyle === "melee";
-          const damage = isMelee ? unit.attack * 2 : unit.attack;
+          const damage = Math.round(unit.attack * WEAPON_DATA[unit.weapon].damageMultiplier);
           const current = pendingDamage.get(action.targetUnitId) || 0;
           pendingDamage.set(action.targetUnitId, current + damage);
         }
@@ -212,7 +212,7 @@ export class AIController implements Controller {
     pendingDamage: Map<string, number>
   ): BattleCommand | null {
     const enemyTeam = unit.team === "player1" ? "player2" : "player1";
-    const isMelee = unit.combatStyle === "melee";
+    const isMelee = isMeleeWeapon(unit.weapon);
     const actionsLeft = maxActions - actionsUsed;
 
     // Calculate which enemies will die from pending damage (treat as already dead)
@@ -414,8 +414,7 @@ export class AIController implements Controller {
     _allEnemies: UnitState[],
     pendingDamage: Map<string, number>
   ): BattleCommand | null {
-    const isMelee = unit.combatStyle === "melee";
-    const damage = isMelee ? unit.attack * 2 : unit.attack; // Melee does 2x damage
+    const damage = Math.round(unit.attack * WEAPON_DATA[unit.weapon].damageMultiplier);
 
     // Can kill from current position?
     for (const enemy of currentEnemies) {
@@ -592,7 +591,8 @@ export class AIController implements Controller {
         let score = attackableFromTile.length;
         const lowestHp = Math.min(...attackableFromTile.map(e => e.hp));
         // Prefer positions where we can hit low HP enemies
-        if (lowestHp <= unit.attack * 2) {
+        const maxDamage = Math.round(unit.attack * WEAPON_DATA[unit.weapon].damageMultiplier);
+        if (lowestHp <= maxDamage) {
           score += 5;
         }
 

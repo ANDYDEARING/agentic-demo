@@ -44,7 +44,7 @@ export interface CustomizeEditorConfig {
   setUnitState: (playerId: "player1" | "player2", unitIndex: number, state: UnitState) => void;
   getTeamColor: (playerId: "player1" | "player2") => string;
   onSave: (playerId: "player1" | "player2", unitIndex: number) => void;
-  randomizeAppearance: (style: "ranged" | "melee") => UnitState["customization"];
+  randomizeAppearance: (weapon: "sword" | "pistol") => UnitState["customization"];
   disableMaterialIBL: (meshes: AbstractMesh[]) => void;
   registerForCleanup: (meshes: AbstractMesh[], anims: AnimationGroup[]) => void;
   isSceneDisposed: () => boolean;
@@ -425,6 +425,52 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
   controlsStack.width = "100%";
   topSectionGrid.addControl(controlsStack, 0, 0);
 
+  // Description column (desktop only) - uses same format as mobile
+  let desktopCopySymbol: TextBlock | null = null;
+  let desktopCopyClass: TextBlock | null = null;
+  let desktopCopyDesc: TextBlock | null = null;
+
+  if (!isMobileLayout) {
+    const descStack = new StackPanel("descStack");
+    descStack.isVertical = true;
+    descStack.width = "100%";
+    descStack.paddingLeft = "12px";
+    descStack.paddingRight = "15px";
+    descStack.paddingTop = "12px";
+    descStack.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    topSectionGrid.addControl(descStack, 0, 1);
+
+    desktopCopySymbol = new TextBlock("desktopCopySymbol");
+    desktopCopySymbol.text = "Δ";
+    desktopCopySymbol.color = COLORS.accentOrange;
+    desktopCopySymbol.fontSize = 24;
+    desktopCopySymbol.fontFamily = "'Bebas Neue', sans-serif";
+    desktopCopySymbol.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    desktopCopySymbol.resizeToFit = true;
+    desktopCopySymbol.paddingBottom = "4px";
+    descStack.addControl(desktopCopySymbol);
+
+    desktopCopyClass = new TextBlock("desktopCopyClass");
+    desktopCopyClass.text = "Soldier";
+    desktopCopyClass.color = COLORS.accentOrange;
+    desktopCopyClass.fontSize = 18;
+    desktopCopyClass.fontFamily = "'Bebas Neue', sans-serif";
+    desktopCopyClass.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    desktopCopyClass.resizeToFit = true;
+    desktopCopyClass.paddingBottom = "8px";
+    descStack.addControl(desktopCopyClass);
+
+    desktopCopyDesc = new TextBlock("desktopCopyDesc");
+    desktopCopyDesc.text = "";
+    desktopCopyDesc.color = COLORS.textSecondary;
+    desktopCopyDesc.fontSize = 12;
+    desktopCopyDesc.textWrapping = true;
+    desktopCopyDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    desktopCopyDesc.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    desktopCopyDesc.resizeToFit = true;
+    descStack.addControl(desktopCopyDesc);
+  }
+
   // Class option
   controlsStack.addControl(createOption(
     "Class",
@@ -435,7 +481,7 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
         const newClass = ALL_CLASSES[idx];
         editingState.selectedClass = newClass;
         if (!editingState.hasBeenCustomized) {
-          editingState.customization = randomizeAppearance(editingState.selectedStyle);
+          editingState.customization = randomizeAppearance(editingState.selectedWeapon);
           refreshAllOptions();
         }
         updateDescriptions();
@@ -461,104 +507,40 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
   // Weapon option
   controlsStack.addControl(createOption(
     "Weapon",
-    [WEAPON_INFO.ranged.label, WEAPON_INFO.melee.label],
-    () => editingState?.selectedStyle === "melee" ? 1 : 0,
+    [WEAPON_INFO.pistol.label, WEAPON_INFO.sword.label],
+    () => editingState?.selectedWeapon === "sword" ? 1 : 0,
     (idx) => {
       if (editingState) {
-        editingState.selectedStyle = idx === 1 ? "melee" : "ranged";
-        editingState.customization.combatStyle = editingState.selectedStyle;
+        editingState.selectedWeapon = idx === 1 ? "sword" : "pistol";
+        editingState.customization.weapon = editingState.selectedWeapon;
         updateDescriptions();
       }
     }
   ));
 
-  // Description column (large screens only)
-  let classTagline: TextBlock | null = null;
-  let abilityLabel: TextBlock | null = null;
-  let abilityDesc: TextBlock | null = null;
-  let boostDesc: TextBlock | null = null;
-  let weaponDesc: TextBlock | null = null;
-
-  if (!isMobileLayout) {
-    const descStack = new StackPanel("descStack");
-    descStack.isVertical = true;
-    descStack.width = "100%";
-    descStack.paddingLeft = "10px";
-    descStack.paddingRight = "15px";
-    descStack.paddingTop = "8px";
-    descStack.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-    topSectionGrid.addControl(descStack, 0, 1);
-
-    classTagline = new TextBlock("classTagline");
-    classTagline.text = "";
-    classTagline.color = COLORS.textSecondary;
-    classTagline.fontSize = smallFontSize;
-    classTagline.textWrapping = true;
-    classTagline.resizeToFit = true;
-    classTagline.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    classTagline.paddingBottom = "8px";
-    descStack.addControl(classTagline);
-
-    abilityLabel = new TextBlock("abilityLabel");
-    abilityLabel.text = "";
-    abilityLabel.color = COLORS.accentOrange;
-    abilityLabel.fontSize = smallFontSize;
-    abilityLabel.fontFamily = "'Bebas Neue', sans-serif";
-    abilityLabel.resizeToFit = true;
-    abilityLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    descStack.addControl(abilityLabel);
-
-    abilityDesc = new TextBlock("abilityDesc");
-    abilityDesc.text = "";
-    abilityDesc.color = COLORS.textMuted;
-    abilityDesc.fontSize = smallFontSize;
-    abilityDesc.textWrapping = true;
-    abilityDesc.resizeToFit = true;
-    abilityDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    abilityDesc.paddingBottom = "8px";
-    descStack.addControl(abilityDesc);
-
-    boostDesc = new TextBlock("boostDesc");
-    boostDesc.text = "";
-    boostDesc.color = COLORS.textMuted;
-    boostDesc.fontSize = smallFontSize;
-    boostDesc.textWrapping = true;
-    boostDesc.resizeToFit = true;
-    boostDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    boostDesc.paddingBottom = "8px";
-    descStack.addControl(boostDesc);
-
-    weaponDesc = new TextBlock("weaponDesc");
-    weaponDesc.text = "";
-    weaponDesc.color = COLORS.textMuted;
-    weaponDesc.fontSize = smallFontSize;
-    weaponDesc.textWrapping = true;
-    weaponDesc.resizeToFit = true;
-    weaponDesc.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    descStack.addControl(weaponDesc);
-  }
-
+  // Update copy section - same content for all layouts
   function updateDescriptions(): void {
     if (!editingState) return;
     const classInfo = CLASS_INFO[editingState.selectedClass];
-    const boost = BOOST_INFO[editingState.selectedBoost];
-    const weapon = WEAPON_INFO[editingState.selectedStyle];
+    const symbol = UNIT_DESIGNATIONS[editingUnitIndex];
+    const description = getUnitDescription(
+      editingState.selectedClass,
+      editingState.selectedBoost,
+      editingState.selectedWeapon
+    );
 
-    if (classTagline) classTagline.text = `"${classInfo.tagline}"`;
-    if (abilityLabel) abilityLabel.text = classInfo.abilityName;
-    if (abilityDesc) abilityDesc.text = classInfo.abilityDesc;
-    if (boostDesc) boostDesc.text = `${boost.desc} +${boost.value}% ${boost.stat}`;
-    if (weaponDesc) weaponDesc.text = weapon.desc;
-
-    // Mobile copy section
+    // Update mobile copy section
     if (editorCopySymbol && editorCopyClass && editorCopyDesc) {
-      editorCopySymbol.text = UNIT_DESIGNATIONS[editingUnitIndex];
+      editorCopySymbol.text = symbol;
       editorCopyClass.text = classInfo.name;
-      editorCopyDesc.text = getUnitDescription(
-        editingState.selectedClass,
-        editingState.selectedBoost,
-        editingState.selectedStyle
-      );
+      editorCopyDesc.text = description;
+    }
+
+    // Update desktop copy section (same content)
+    if (desktopCopySymbol && desktopCopyClass && desktopCopyDesc) {
+      desktopCopySymbol.text = symbol;
+      desktopCopyClass.text = classInfo.name;
+      desktopCopyDesc.text = description;
     }
   }
 
@@ -679,7 +661,7 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
 
     refreshButtons("Class", ALL_CLASSES.indexOf(editingState.selectedClass));
     refreshButtons("Boost", editingState.selectedBoost);
-    refreshButtons("Weapon", editingState.selectedStyle === "melee" ? 1 : 0);
+    refreshButtons("Weapon", editingState.selectedWeapon === "sword" ? 1 : 0);
     refreshButtons("Body", editingState.customization.body === "female" ? 1 : 0);
     refreshButtons("Head", editingState.customization.head);
     refreshButtons("Handedness", editingState.customization.handedness === "left" ? 1 : 0);
@@ -716,14 +698,14 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
     originalState = {
       selectedClass: current.selectedClass,
       selectedBoost: current.selectedBoost,
-      selectedStyle: current.selectedStyle,
+      selectedWeapon: current.selectedWeapon,
       customization: { ...current.customization },
       hasBeenCustomized: current.hasBeenCustomized,
     };
     editingState = {
       selectedClass: current.selectedClass,
       selectedBoost: current.selectedBoost,
-      selectedStyle: current.selectedStyle,
+      selectedWeapon: current.selectedWeapon,
       customization: { ...current.customization },
       hasBeenCustomized: current.hasBeenCustomized,
     };

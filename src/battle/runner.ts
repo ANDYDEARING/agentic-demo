@@ -7,7 +7,8 @@
 
 import type { BattleState, UnitState } from "./state";
 import type { BattleCommand } from "./commands";
-import type { UnitClass, Team, CombatStyle } from "../types";
+import type { UnitClass, Team, WeaponType } from "../types";
+import { isMeleeWeapon, WEAPON_DATA, BOOST_BY_INDEX, CLASS_BASE_STATS } from "../config/balance";
 import { createBattleState } from "./state";
 import {
   getNextUnitByAccumulator,
@@ -24,10 +25,7 @@ import {
   PLAYER2_SPAWN_POSITIONS,
   ACTIONS_PER_TURN,
   SPEED_BONUS_PER_UNUSED_ACTION,
-  BOOST_MULTIPLIER,
-  BASE_UNIT_SPEED,
 } from "../config/constants";
-import { CLASS_DATA } from "../types";
 
 // =============================================================================
 // LOADOUT TYPES
@@ -35,7 +33,7 @@ import { CLASS_DATA } from "../types";
 
 export interface UnitLoadout {
   unitClass: UnitClass;
-  combatStyle: CombatStyle;
+  weapon: WeaponType;
   boost: number; // 0=HP, 1=ATK, 2=Speed
 }
 
@@ -51,13 +49,13 @@ export interface BattleResult {
 // =============================================================================
 
 const ALL_CLASSES: UnitClass[] = ["soldier", "operator", "medic"];
-const ALL_STYLES: CombatStyle[] = ["melee", "ranged"];
+const ALL_WEAPONS: WeaponType[] = ["sword", "pistol"];
 const ALL_BOOSTS = [0, 1, 2];
 
 export function generateRandomLoadout(): UnitLoadout[] {
   return [0, 1, 2].map(() => ({
     unitClass: ALL_CLASSES[Math.floor(Math.random() * ALL_CLASSES.length)],
-    combatStyle: ALL_STYLES[Math.floor(Math.random() * ALL_STYLES.length)],
+    weapon: ALL_WEAPONS[Math.floor(Math.random() * ALL_WEAPONS.length)],
     boost: ALL_BOOSTS[Math.floor(Math.random() * ALL_BOOSTS.length)],
   }));
 }
@@ -73,17 +71,13 @@ function createUnitFromLoadout(
   spawnX: number,
   spawnZ: number
 ): UnitState {
-  const classData = CLASS_DATA[loadout.unitClass];
-  const boostIndex = loadout.boost;
+  const baseStats = CLASS_BASE_STATS[loadout.unitClass];
+  const boost = BOOST_BY_INDEX[loadout.boost];
 
   // Apply boost multipliers
-  const hpMultiplier = boostIndex === 0 ? 1 + BOOST_MULTIPLIER : 1;
-  const attackMultiplier = boostIndex === 1 ? 1 + BOOST_MULTIPLIER : 1;
-  const speedMultiplier = boostIndex === 2 ? 1 + BOOST_MULTIPLIER : 1;
-
-  const boostedHp = Math.round(classData.hp * hpMultiplier);
-  const boostedAttack = Math.round(classData.attack * attackMultiplier);
-  const boostedSpeed = BASE_UNIT_SPEED * speedMultiplier;
+  const hpMultiplier = boost.stat === "hp" ? 1 + boost.multiplier : 1;
+  const attackMultiplier = boost.stat === "attack" ? 1 + boost.multiplier : 1;
+  const speedMultiplier = boost.stat === "speed" ? 1 + boost.multiplier : 1;
 
   return {
     id: `${team}-${loadoutIndex}`,
@@ -91,14 +85,14 @@ function createUnitFromLoadout(
     team,
     gridX: spawnX,
     gridZ: spawnZ,
-    hp: boostedHp,
-    maxHp: boostedHp,
-    attack: boostedAttack,
-    healAmount: classData.healAmount,
-    moveRange: classData.moveRange,
-    attackRange: classData.attackRange,
-    combatStyle: loadout.combatStyle,
-    speed: boostedSpeed,
+    hp: Math.round(baseStats.hp * hpMultiplier),
+    maxHp: Math.round(baseStats.hp * hpMultiplier),
+    attack: Math.round(baseStats.attack * attackMultiplier),
+    healAmount: baseStats.healAmount,
+    moveRange: baseStats.moveRange,
+    attackRange: baseStats.attackRange,
+    weapon: loadout.weapon,
+    speed: baseStats.speed * speedMultiplier,
     speedBonus: 0,
     accumulator: 0,
     loadoutIndex,
@@ -159,8 +153,7 @@ function getAICommands(state: BattleState, unit: UnitState): BattleCommand[] {
       isCovering = true;
     }
     if (action.type === "attack") {
-      const isMelee = unit.combatStyle === "melee";
-      const damage = isMelee ? unit.attack * 2 : unit.attack;
+      const damage = Math.round(unit.attack * WEAPON_DATA[unit.weapon].damageMultiplier);
       const current = pendingDamage.get(action.targetUnitId) || 0;
       pendingDamage.set(action.targetUnitId, current + damage);
     }
@@ -181,7 +174,7 @@ function chooseBestAction(
   isCovering: boolean
 ): BattleCommand | null {
   const enemyTeam = unit.team === "player1" ? "player2" : "player1";
-  const isMelee = unit.combatStyle === "melee";
+  const isMelee = isMeleeWeapon(unit.weapon);
   const actionsLeft = maxActions - actionsUsed;
 
   // Calculate pending kills
@@ -261,8 +254,7 @@ function findKillOpportunity(
   _allEnemies: UnitState[],
   pendingDamage: Map<string, number>
 ): BattleCommand | null {
-  const isMelee = unit.combatStyle === "melee";
-  const damage = isMelee ? unit.attack * 2 : unit.attack;
+  const damage = Math.round(unit.attack * WEAPON_DATA[unit.weapon].damageMultiplier);
 
   // Check if we can kill an enemy in range
   for (const enemy of enemies) {

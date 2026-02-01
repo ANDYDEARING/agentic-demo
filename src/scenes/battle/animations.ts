@@ -6,6 +6,7 @@
  */
 
 import type { Unit } from "../../types";
+import { isMeleeWeapon } from "../../config/balance";
 
 // =============================================================================
 // ANIMATION PLAYBACK
@@ -55,7 +56,7 @@ export function playAnimation(
  * Play the appropriate idle animation based on combat style.
  */
 export function playIdleAnimation(unit: Unit): void {
-  const isMelee = unit.customization?.combatStyle === "melee";
+  const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : true;
   playAnimation(unit, isMelee ? "Idle_Sword" : "Idle_Gun", true);
 }
 

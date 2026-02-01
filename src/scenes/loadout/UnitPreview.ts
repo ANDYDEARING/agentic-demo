@@ -209,7 +209,7 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
     animPhase = (animPhase + 1) % 3;
 
     const state = getState();
-    const isMelee = state.selectedStyle === "melee";
+    const isMelee = state.selectedWeapon === "sword";
 
     animations.forEach(ag => ag.stop());
 
@@ -282,7 +282,7 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
     const state = getState();
     const customization = state.customization;
     const headIndex = customization.head;
-    const isMelee = state.selectedStyle === "melee";
+    const isMelee = state.selectedWeapon === "sword";
     const isRightHanded = customization.handedness === "right";
 
     const teamColor = hexToColor3(getTeamColor());
@@ -423,7 +423,7 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
 
     if (animations.length > 0) {
       const state = getState();
-      const isMelee = state.selectedStyle === "melee";
+      const isMelee = state.selectedWeapon === "sword";
       animations.forEach(ag => ag.stop());
       const idleAnim = isMelee
         ? animations.find(ag => ag.name === "Idle_Sword")

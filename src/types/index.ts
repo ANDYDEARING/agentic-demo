@@ -29,8 +29,11 @@ export type UnitClass = "soldier" | "operator" | "medic";
 /** Body type options */
 export type BodyType = "male" | "female";
 
-/** Combat style determines weapon and attack range */
-export type CombatStyle = "melee" | "ranged";
+/** Weapon type determines attack pattern and damage multiplier */
+export type WeaponType = "sword" | "pistol";
+
+/** @deprecated Use WeaponType instead */
+export type CombatStyle = WeaponType;
 
 /** Handedness affects model orientation */
 export type Handedness = "right" | "left";
@@ -38,7 +41,7 @@ export type Handedness = "right" | "left";
 /** Visual customization options for a unit */
 export interface UnitCustomization {
   body: BodyType;
-  combatStyle: CombatStyle;
+  weapon: WeaponType;
   handedness: Handedness;
   head: number;       // 0-3 for Head_001 through Head_004
   hairColor: number;  // Index into HAIR_COLORS palette

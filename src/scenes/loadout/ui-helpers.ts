@@ -334,7 +334,7 @@ export function createUnitCard(config: UnitCardConfig): UnitCardController {
 
   // Description
   const descText = new TextBlock(`desc_${key}`);
-  descText.text = getUnitDescription(state.selectedClass, state.selectedBoost, state.selectedStyle);
+  descText.text = getUnitDescription(state.selectedClass, state.selectedBoost, state.selectedWeapon);
   descText.color = COLORS.textSecondary;
   descText.fontSize = isMobile ? 11 : isTablet ? 12 : 13;
   descText.textWrapping = true;
@@ -384,7 +384,7 @@ export function createUnitCard(config: UnitCardConfig): UnitCardController {
   function updateCard(): void {
     const s = getState();
     classText.text = CLASS_INFO[s.selectedClass].name;
-    descText.text = getUnitDescription(s.selectedClass, s.selectedBoost, s.selectedStyle);
+    descText.text = getUnitDescription(s.selectedClass, s.selectedBoost, s.selectedWeapon);
   }
 
   return {

@@ -6,24 +6,39 @@ import {
   ACTIONS_PER_TURN,
   ACCUMULATOR_THRESHOLD,
   SPEED_BONUS_PER_UNUSED_ACTION,
-  BASE_UNIT_SPEED,
-  MELEE_DAMAGE_MULTIPLIER,
-  BOOST_MULTIPLIER,
   GRID_SIZE,
 } from "./constants";
-import { CLASS_DATA } from "../types";
+import {
+  BOOST_DATA,
+  WEAPON_DATA,
+  CLASS_BASE_STATS,
+} from "./balance";
 
 export function getHowToContent(): string {
+  const toughPct = Math.round(BOOST_DATA.tough.multiplier * 100);
+  const deadlyPct = Math.round(BOOST_DATA.deadly.multiplier * 100);
+  const quickPct = Math.round(BOOST_DATA.quick.multiplier * 100);
+  const swordMultiplier = WEAPON_DATA.sword.damageMultiplier;
+
+  // Get move ranges (show range if all same, or list per class)
+  const soldierMove = CLASS_BASE_STATS.soldier.moveRange;
+  const operatorMove = CLASS_BASE_STATS.operator.moveRange;
+  const medicMove = CLASS_BASE_STATS.medic.moveRange;
+  const allSameMove = soldierMove === operatorMove && operatorMove === medicMove;
+  const moveDesc = allSameMove
+    ? `up to ${soldierMove} tiles`
+    : `Soldier ${soldierMove}, Operator ${operatorMove}, Medic ${medicMove}`;
+
   return `GOAL: Eliminate all enemy units.
 
-YOUR TURN: Each unit gets 2 actions. Mix and match:
-  - Move (up to 3 tiles)
+YOUR TURN: Each unit gets ${ACTIONS_PER_TURN} actions. Mix and match:
+  - Move (${moveDesc})
   - Attack (melee = adjacent, ranged = line of sight)
   - Use ability (class-specific)
 
 WEAPONS:
-  - Melee: High damage, must be adjacent to target
-  - Ranged: Lower damage, can't hit adjacent tiles
+  - ${WEAPON_DATA.sword.name}: ${swordMultiplier}x damage, must be adjacent to target
+  - ${WEAPON_DATA.pistol.name}: Lower damage, can't hit adjacent tiles
 
 CLASSES:
   - Soldier: Use COVER to watch tiles and auto-attack enemies
@@ -31,9 +46,9 @@ CLASSES:
   - Medic: Use HEAL on yourself or adjacent allies
 
 BOOSTS (pick one per unit):
-  - Tough: +25% HP
-  - Deadly: +25% Damage
-  - Quick: +25% Speed (act sooner)
+  - Tough: +${toughPct}% HP
+  - Deadly: +${deadlyPct}% Damage
+  - Quick: +${quickPct}% Speed (act sooner)
 
 TIPS:
   - Ending turn early with unused actions gives a speed bonus
@@ -43,11 +58,17 @@ TIPS:
 }
 
 export function getNerdContent(): string {
-  const soldier = CLASS_DATA.soldier;
-  const operator = CLASS_DATA.operator;
-  const medic = CLASS_DATA.medic;
-  const boostPct = Math.round(BOOST_MULTIPLIER * 100);
-  const meleeMultiplier = MELEE_DAMAGE_MULTIPLIER;
+  const soldier = CLASS_BASE_STATS.soldier;
+  const operator = CLASS_BASE_STATS.operator;
+  const medic = CLASS_BASE_STATS.medic;
+
+  const toughPct = Math.round(BOOST_DATA.tough.multiplier * 100);
+  const deadlyPct = Math.round(BOOST_DATA.deadly.multiplier * 100);
+  const quickPct = Math.round(BOOST_DATA.quick.multiplier * 100);
+
+  const swordMultiplier = WEAPON_DATA.sword.damageMultiplier;
+  const pistolMultiplier = WEAPON_DATA.pistol.damageMultiplier;
+  const baseSpeed = soldier.speed;
 
   return `GRID: ${GRID_SIZE}x${GRID_SIZE} tiles
 
@@ -57,13 +78,13 @@ UNIT BASE STATS:
   Medic:    HP ${medic.hp} | ATK ${medic.attack} | Move ${medic.moveRange}
 
 DAMAGE FORMULA:
-  Ranged: ATK x 1 = ${soldier.attack} damage
-  Melee:  ATK x ${meleeMultiplier} = ${soldier.attack * meleeMultiplier} damage
+  ${WEAPON_DATA.pistol.name}: ATK x ${pistolMultiplier} = ${soldier.attack * pistolMultiplier} damage
+  ${WEAPON_DATA.sword.name}:  ATK x ${swordMultiplier} = ${soldier.attack * swordMultiplier} damage
 
-BOOSTS (+${boostPct}%):
-  Tough:  HP ${soldier.hp} -> ${Math.round(soldier.hp * (1 + BOOST_MULTIPLIER))}
-  Deadly: ATK ${soldier.attack} -> ${Math.round(soldier.attack * (1 + BOOST_MULTIPLIER))} (melee dmg: ${Math.round(soldier.attack * (1 + BOOST_MULTIPLIER) * meleeMultiplier)})
-  Quick:  Speed ${BASE_UNIT_SPEED} -> ${(BASE_UNIT_SPEED * (1 + BOOST_MULTIPLIER)).toFixed(2)}
+BOOSTS:
+  Tough (+${toughPct}% HP):    HP ${soldier.hp} -> ${Math.round(soldier.hp * (1 + BOOST_DATA.tough.multiplier))}
+  Deadly (+${deadlyPct}% ATK): ATK ${soldier.attack} -> ${Math.round(soldier.attack * (1 + BOOST_DATA.deadly.multiplier))} (sword dmg: ${Math.round(soldier.attack * (1 + BOOST_DATA.deadly.multiplier) * swordMultiplier)})
+  Quick (+${quickPct}% Speed): Speed ${baseSpeed} -> ${(baseSpeed * (1 + BOOST_DATA.quick.multiplier)).toFixed(2)}
 
 TURN ORDER (Accumulator System):
   - Each unit has an accumulator starting at 0
@@ -83,8 +104,8 @@ ACTIONS PER TURN: ${ACTIONS_PER_TURN}
 COVER (Soldier):
   - Activation: Costs 1 action
   - Watched tiles:
-    * Melee: All 8 adjacent (diagonals need LOS)
-    * Ranged: All tiles in LOS (not adjacent)
+    * ${WEAPON_DATA.sword.name}: All 8 adjacent (diagonals need LOS)
+    * ${WEAPON_DATA.pistol.name}: All tiles in LOS (not adjacent)
   - Triggers: When enemy completes ANY action in a watched tile
   - Effect: Auto-attack the enemy, then Cover ends
   - Breaks when:
@@ -109,5 +130,5 @@ LINE OF SIGHT:
   - Blocked by: Terrain blocks, other units
   - Units block the interior of their tile, not corners
   - Diagonal attacks/heals require clear LOS
-  - Ranged attacks cannot target adjacent tiles`;
+  - ${WEAPON_DATA.pistol.name} attacks cannot target adjacent tiles`;
 }

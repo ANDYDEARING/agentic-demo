@@ -1,4 +1,5 @@
 import type { UnitClass } from "../../types";
+import { BOOST_BY_INDEX, WEAPON_DATA } from "../../config/balance";
 
 // Greek letters for unit designations
 export const UNIT_DESIGNATIONS = ["Δ", "Ψ", "Ω"] as const; // Delta, Psi, Omega
@@ -25,30 +26,30 @@ export const CLASS_INFO: Record<UnitClass, { name: string; tagline: string; abil
   },
 };
 
-// Boost options
+// Boost options - values derived from BOOST_DATA
 export const BOOST_INFO = [
-  { name: "Tough", stat: "HP", value: 25, desc: "This unit has an extra" },
-  { name: "Deadly", stat: "Damage", value: 25, desc: "This unit deals an extra" },
-  { name: "Quick", stat: "Speed", value: 25, desc: "This unit has" },
-] as const;
+  { name: "Tough", stat: "HP", get value() { return Math.round(BOOST_BY_INDEX[0].multiplier * 100); }, desc: "This unit has an extra" },
+  { name: "Deadly", stat: "Damage", get value() { return Math.round(BOOST_BY_INDEX[1].multiplier * 100); }, desc: "This unit deals an extra" },
+  { name: "Quick", stat: "Speed", get value() { return Math.round(BOOST_BY_INDEX[2].multiplier * 100); }, desc: "This unit has" },
+];
 
-// Weapon options
+// Weapon options - descriptions derived from WEAPON_DATA
 export const WEAPON_INFO = {
-  ranged: {
-    label: "Ranged",
+  pistol: {
+    label: "Pistol",
     desc: "Can attack non-adjacent units in Line of Sight",
   },
-  melee: {
-    label: "Melee",
-    desc: "2x damage, adjacent spaces only",
+  sword: {
+    label: "Sword",
+    get desc() { return `${WEAPON_DATA.sword.damageMultiplier}x damage, adjacent spaces only`; },
   },
-} as const;
+};
 
 // Get full unit description for cards
-export function getUnitDescription(unitClass: UnitClass, boostIndex: number, weaponStyle: "ranged" | "melee"): string {
+export function getUnitDescription(unitClass: UnitClass, boostIndex: number, weaponType: "sword" | "pistol"): string {
   const cls = CLASS_INFO[unitClass];
   const boost = BOOST_INFO[boostIndex];
-  const weapon = WEAPON_INFO[weaponStyle];
+  const weapon = WEAPON_INFO[weaponType];
 
   return [
     cls.tagline,

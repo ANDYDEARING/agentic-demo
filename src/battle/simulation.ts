@@ -5,8 +5,9 @@
  * Runs many AI vs AI battles and tracks win rates by trait.
  */
 
-import type { UnitClass, CombatStyle } from "../types";
+import type { UnitClass, WeaponType } from "../types";
 import { runBattle, generateRandomLoadout, type UnitLoadout, type BattleResult } from "./runner";
+import { WEAPON_DATA } from "../config/balance";
 
 // =============================================================================
 // STATISTICS TYPES
@@ -25,7 +26,7 @@ export interface SimulationStats {
   classCounts: Record<UnitClass, TraitStats>;
 
   // Win rates by weapon
-  weaponCounts: Record<CombatStyle, TraitStats>;
+  weaponCounts: Record<WeaponType, TraitStats>;
 
   // Win rates by boost
   boostCounts: Record<number, TraitStats>;
@@ -48,8 +49,8 @@ function createEmptyStats(): SimulationStats {
       medic: { appearances: 0, wins: 0 },
     },
     weaponCounts: {
-      melee: { appearances: 0, wins: 0 },
-      ranged: { appearances: 0, wins: 0 },
+      sword: { appearances: 0, wins: 0 },
+      pistol: { appearances: 0, wins: 0 },
     },
     boostCounts: {
       0: { appearances: 0, wins: 0 },
@@ -71,15 +72,15 @@ function recordLoadout(
     if (won) stats.classCounts[unit.unitClass].wins++;
 
     // Weapon
-    stats.weaponCounts[unit.combatStyle].appearances++;
-    if (won) stats.weaponCounts[unit.combatStyle].wins++;
+    stats.weaponCounts[unit.weapon].appearances++;
+    if (won) stats.weaponCounts[unit.weapon].wins++;
 
     // Boost
     stats.boostCounts[unit.boost].appearances++;
     if (won) stats.boostCounts[unit.boost].wins++;
 
     // Combo
-    const comboKey = `${unit.unitClass}+${unit.combatStyle}`;
+    const comboKey = `${unit.unitClass}+${unit.weapon}`;
     if (!stats.comboCounts[comboKey]) {
       stats.comboCounts[comboKey] = { appearances: 0, wins: 0 };
     }
@@ -152,7 +153,8 @@ export function printStats(stats: SimulationStats): void {
 
   console.log("\n=== WEAPON WIN RATES ===");
   for (const [weapon, data] of Object.entries(stats.weaponCounts)) {
-    const name = weapon.charAt(0).toUpperCase() + weapon.slice(1);
+    const weaponData = WEAPON_DATA[weapon as WeaponType];
+    const name = weaponData?.name || weapon;
     console.log(`${name.padEnd(12)} ${formatPercent(data.wins, data.appearances)}`);
   }
 
@@ -170,7 +172,9 @@ export function printStats(stats: SimulationStats): void {
   });
   for (const [combo, data] of sortedCombos) {
     const [cls, weapon] = combo.split("+");
-    const name = `${cls.charAt(0).toUpperCase() + cls.slice(1)}+${weapon.charAt(0).toUpperCase() + weapon.slice(1)}`;
+    const className = cls.charAt(0).toUpperCase() + cls.slice(1);
+    const weaponName = WEAPON_DATA[weapon as WeaponType]?.name || weapon;
+    const name = `${className}+${weaponName}`;
     console.log(`${name.padEnd(20)} ${formatPercent(data.wins, data.appearances)}`);
   }
 }

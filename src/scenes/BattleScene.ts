@@ -80,8 +80,6 @@ import {
   ACTIONS_PER_TURN,
   ACCUMULATOR_THRESHOLD,
   SPEED_BONUS_PER_UNUSED_ACTION,
-  MELEE_DAMAGE_MULTIPLIER,
-  BOOST_MULTIPLIER,
   HP_LOW_THRESHOLD,
   HP_MEDIUM_THRESHOLD,
   BATTLE_MODEL_SCALE,
@@ -102,6 +100,9 @@ import {
 
 // Import audio config
 import { MUSIC, SFX, AUDIO_VOLUMES, LOOP_BUFFER_TIME } from "../config";
+
+// Import balance config
+import { isMeleeWeapon, WEAPON_DATA, BOOST_BY_INDEX } from "../config/balance";
 
 // Import utility functions
 import { hexToColor3, createMusicPlayer, playSfx, rgbToColor3, type MusicPlayer } from "../utils";
@@ -591,7 +592,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       healAmount: unit.healAmount,
       moveRange: unit.moveRange,
       attackRange: unit.attackRange,
-      combatStyle: unit.customization?.combatStyle ?? "ranged",
+      weapon: unit.customization?.weapon ?? "pistol",
       speed: unit.speed,
       speedBonus: unit.speedBonus,
       accumulator: unit.accumulator,
@@ -701,7 +702,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       healAmount: unit.healAmount,
       moveRange: unit.moveRange,
       attackRange: unit.attackRange,
-      combatStyle: unit.customization?.combatStyle ?? "ranged",
+      weapon: unit.customization?.weapon ?? "pistol",
       speed: unit.speed,
       speedBonus: unit.speedBonus,
       accumulator: unit.accumulator,
@@ -1356,7 +1357,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
     for (const unit of units) {
       if (unit.isCovering && unit.hp > 0) {
         // Recalculate and show cover tiles
-        const isMelee = unit.customization?.combatStyle === "melee";
+        const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : false;
         let coveredTiles: { x: number; z: number }[];
         if (isMelee) {
           coveredTiles = getAdjacentTiles(unit.gridX, unit.gridZ).filter(tile => {
@@ -2181,7 +2182,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       clearCoverVisualizationForUnit(unit);
 
       // Recalculate covered tiles based on current positions
-      const isMelee = unit.customization?.combatStyle === "melee";
+      const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : false;
       let coveredTiles: { x: number; z: number }[];
 
       if (isMelee) {
@@ -2229,7 +2230,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
   function showCoverPreview(unit: Unit, fromX: number, fromZ: number): void {
     clearCoverPreview();
 
-    const isMelee = unit.customization?.combatStyle === "melee";
+    const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : false;
     let tiles: { x: number; z: number }[];
 
     if (isMelee) {
@@ -2854,7 +2855,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       setUnitFacing(attacker, defender.gridX, defender.gridZ);
 
       // Play attack animation based on combat style
-      const isMelee = attacker.customization?.combatStyle === "melee";
+      const isMelee = attacker.customization?.weapon ? isMeleeWeapon(attacker.customization.weapon) : false;
       const attackAnim = isMelee ? "Sword_Slash" : "Gun_Shoot";
 
       // Play swing/shot sound immediately with animation
@@ -2884,9 +2885,10 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
           return;
         }
 
-        // Apply damage (melee does more damage - using centralized multiplier)
-        const isMeleeAttack = attacker.customization?.combatStyle === "melee";
-        const damage = isMeleeAttack ? attacker.attack * MELEE_DAMAGE_MULTIPLIER : attacker.attack;
+        // Apply damage using weapon's damage multiplier
+        const attackerWeapon = attacker.customization?.weapon ?? "pistol";
+        const damage = Math.round(attacker.attack * WEAPON_DATA[attackerWeapon].damageMultiplier);
+        const isMeleeAttack = isMeleeWeapon(attackerWeapon);
         defender.hp = Math.max(0, defender.hp - damage);
         console.log(`${attacker.team} ${attacker.unitClass} attacks ${defender.team} ${defender.unitClass} for ${damage} damage! (${defender.hp}/${defender.maxHp} HP)`);
 
@@ -2986,7 +2988,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
         weaponMeshes.forEach(m => m.setEnabled(false));
 
         playAnimation(healer, "Interact", false, () => {
-          const isMelee = healer.customization?.combatStyle === "melee";
+          const isMelee = healer.customization?.weapon ? isMeleeWeapon(healer.customization.weapon) : false;
           healer.modelMeshes?.forEach(m => {
             if (m.name.toLowerCase().includes("sword")) m.setEnabled(isMelee);
             else if (m.name.toLowerCase().includes("pistol")) m.setEnabled(!isMelee);
@@ -3037,7 +3039,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
         weaponMeshes.forEach(m => m.setEnabled(false));
 
         playAnimation(unit, "Interact", false, () => {
-          const isMelee = unit.customization?.combatStyle === "melee";
+          const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : false;
           unit.modelMeshes?.forEach(m => {
             if (m.name.toLowerCase().includes("sword")) {
               m.setEnabled(isMelee);
@@ -3085,7 +3087,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
       if (unit.isCovering) {
         // Get covered tiles based on weapon type
-        const isMelee = unit.customization?.combatStyle === "melee";
+        const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : false;
         let coveredTiles: { x: number; z: number }[];
 
         if (isMelee) {
@@ -3122,7 +3124,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
         weaponMeshes.forEach(m => m.setEnabled(false));
 
         playAnimation(unit, "Interact", false, () => {
-          const isMelee = unit.customization?.combatStyle === "melee";
+          const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : false;
           unit.modelMeshes?.forEach(m => {
             if (m.name.toLowerCase().includes("sword")) {
               m.setEnabled(isMelee);
@@ -3633,6 +3635,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
   // Replay the previous team's turn with full state reset and re-execution
   // This executes through the exact same logic as normal gameplay for accurate replay
+  // TODO: Fix replay system error - flagged for later investigation
   async function replayPreviousTurn(): Promise<void> {
     if (!previousTeamTurnRecord || isReplaying || gameOver) return;
     if (!previousTeamTurnRecord.unitSnapshots || previousTeamTurnRecord.unitSnapshots.length === 0) {
@@ -3986,7 +3989,8 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
     const designation = UNIT_DESIGNATIONS[currentUnit.loadoutIndex] || "?";
     const className = getClassData(currentUnit.unitClass).name;
-    const weapon = currentUnit.customization?.combatStyle === "melee" ? "MELEE" : "RANGED";
+    const weaponType = currentUnit.customization?.weapon ?? "pistol";
+    const weapon = WEAPON_DATA[weaponType].name.toUpperCase();
     const boostData = BOOST_INFO[currentUnit.boost] || BOOST_INFO[0];
 
     // Line 1: Symbol Class (team color)
@@ -4374,10 +4378,11 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
     row.addControl(speedText);
 
     // Weapon + Boost text
-    const weaponType = unit.customization?.combatStyle === "melee" ? "Melee" : "Ranged";
+    const weaponType = unit.customization?.weapon ?? "pistol";
+    const weaponName = WEAPON_DATA[weaponType].name;
     const boostData = BOOST_INFO[unit.boost] || BOOST_INFO[0];
     const boostText = new TextBlock(`boostText${index}`);
-    boostText.text = `${weaponType}, +25% ${boostData.stat}`;
+    boostText.text = `${weaponName}, +${boostData.value}% ${boostData.stat}`;
     boostText.color = "#888888";
     boostText.fontSize = 11;
     boostText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -4829,8 +4834,9 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
         const target = action.targetUnit;
         const targetDesignation = UNIT_DESIGNATIONS[target.loadoutIndex] || "?";
         const targetClass = getClassData(target.unitClass).name;
-        const isMelee = currentUnit.customization?.combatStyle === "melee";
-        const baseDamage = isMelee ? currentUnit.attack * MELEE_DAMAGE_MULTIPLIER : currentUnit.attack;
+        const currentWeapon = currentUnit.customization?.weapon ?? "pistol";
+        const isMelee = isMeleeWeapon(currentWeapon);
+        const baseDamage = Math.round(currentUnit.attack * WEAPON_DATA[currentWeapon].damageMultiplier);
         // Check if target is concealed (and conceal hasn't been broken by earlier action)
         const targetIsConcealed = target.isConcealed && !concealBroken.has(target);
         const damage = targetIsConcealed ? 0 : baseDamage;
@@ -5122,7 +5128,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
     // Update attack button based on combat style
     if (attackBtn.textBlock) {
-      const isMelee = currentUnit.customization?.combatStyle === "melee";
+      const isMelee = currentUnit.customization?.weapon ? isMeleeWeapon(currentUnit.customization.weapon) : false;
       attackBtn.textBlock.text = isMelee ? "Strike" : "Shoot";
     }
 
@@ -5150,7 +5156,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
           lines.push(`  Move to (${action.targetX},${action.targetZ})`);
         } else if (action.type === "attack" && action.targetUnit) {
           const targetName = getClassData(action.targetUnit.unitClass).name;
-          const isMelee = currentUnit.customization?.combatStyle === "melee";
+          const isMelee = currentUnit.customization?.weapon ? isMeleeWeapon(currentUnit.customization.weapon) : false;
           const attackVerb = isMelee ? "Strike" : "Shoot";
           lines.push(`  ${attackVerb} ${targetName}`);
         } else if (action.type === "ability" && action.abilityName === "heal" && action.targetUnit) {
@@ -5246,7 +5252,7 @@ async function createUnit(
   // Default customization if not provided
   const c: UnitCustomization = customization ?? {
     body: "male",
-    combatStyle: "ranged",
+    weapon: "pistol",
     handedness: "right",
     head: 0,
     hairColor: 0,
@@ -5289,10 +5295,10 @@ async function createUnit(
     headMeshes.forEach(mesh => mesh.setEnabled(i === c.head));
   }
 
-  // Weapon visibility based on combat style
+  // Weapon visibility based on weapon type
   const swordMeshes = modelMeshes.filter(m => m.name.toLowerCase().includes("sword"));
   const pistolMeshes = modelMeshes.filter(m => m.name.toLowerCase().includes("pistol"));
-  const isMelee = c.combatStyle === "melee";
+  const isMelee = isMeleeWeapon(c.weapon);
   swordMeshes.forEach(m => m.setEnabled(isMelee));
   pistolMeshes.forEach(m => m.setEnabled(!isMelee));
 
@@ -5376,12 +5382,12 @@ async function createUnit(
 
   const originalColor = teamColor.clone();
 
-  // Apply boost multipliers based on boost index
-  // boost 0 = HP, boost 1 = Damage, boost 2 = Speed
+  // Apply boost multipliers based on boost index using BOOST_BY_INDEX
   const boostIndex = boost ?? 0;
-  const hpMultiplier = boostIndex === 0 ? 1 + BOOST_MULTIPLIER : 1;
-  const attackMultiplier = boostIndex === 1 ? 1 + BOOST_MULTIPLIER : 1;
-  const speedMultiplier = boostIndex === 2 ? 1 + BOOST_MULTIPLIER : 1;
+  const boostData = BOOST_BY_INDEX[boostIndex];
+  const hpMultiplier = boostData.stat === "hp" ? 1 + boostData.multiplier : 1;
+  const attackMultiplier = boostData.stat === "attack" ? 1 + boostData.multiplier : 1;
+  const speedMultiplier = boostData.stat === "speed" ? 1 + boostData.multiplier : 1;
 
   const boostedHp = Math.round(classData.hp * hpMultiplier);
   const boostedAttack = Math.round(classData.attack * attackMultiplier);
