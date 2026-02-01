@@ -1,5 +1,5 @@
 import type { UnitClass } from "../../types";
-import { BOOST_BY_INDEX, WEAPON_DATA } from "../../config/balance";
+import { BOOST_BY_INDEX, WEAPON_DATA, CLASS_BASE_STATS } from "../../config/balance";
 
 // Greek letters for unit designations
 export const UNIT_DESIGNATIONS = ["Δ", "Ψ", "Ω"] as const; // Delta, Psi, Omega
@@ -50,9 +50,29 @@ export function getUnitDescription(unitClass: UnitClass, boostIndex: number, wea
   const cls = CLASS_INFO[unitClass];
   const boost = BOOST_INFO[boostIndex];
   const weapon = WEAPON_INFO[weaponType];
+  const baseStats = CLASS_BASE_STATS[unitClass];
+  const boostData = BOOST_BY_INDEX[boostIndex];
+
+  // Calculate boosted stats
+  const hpMultiplier = boostData.stat === "hp" ? 1 + boostData.multiplier : 1;
+  const attackMultiplier = boostData.stat === "attack" ? 1 + boostData.multiplier : 1;
+  const speedMultiplier = boostData.stat === "speed" ? 1 + boostData.multiplier : 1;
+
+  const hp = Math.round(baseStats.hp * hpMultiplier);
+  const attack = Math.round(baseStats.attack * attackMultiplier);
+  const speed = (baseStats.speed * speedMultiplier).toFixed(2).replace(/\.?0+$/, "");
+  const move = baseStats.moveRange;
+  const heal = baseStats.healAmount;
+
+  // Build stats line
+  let statsLine = `[HP]: ${hp}  [ATK]: ${attack}  [SPD]: ${speed}  [MOV]: ${move}`;
+  if (heal > 0) {
+    statsLine += `  [HEAL]: ${heal}`;
+  }
 
   return [
     cls.tagline,
+    statsLine,
     `[${cls.abilityName}]: ${cls.abilityDesc}`,
     `[${boost.name.toUpperCase()}]: ${boost.desc} +${boost.value}% ${boost.stat}`,
     `[${weapon.label.toUpperCase()}]: ${weapon.desc}`,

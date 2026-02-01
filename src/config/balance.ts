@@ -160,7 +160,7 @@ export const CLASS_BASE_STATS: Record<UnitClass, ClassBaseStats> = {
     attack: 18,
     speed: 1.2,
     moveRange: 4,
-    healAmount: 25,
+    healAmount: 26,
   },
 };
 
