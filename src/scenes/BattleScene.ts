@@ -702,20 +702,27 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
   tutorialOverlay.zIndex = 200;
   gui.addControl(tutorialOverlay);
 
-  // Tutorial content panel (centered on screen)
+  // Tutorial content container (centered on screen)
+  const tutorialContainer = new Rectangle("tutorialContainer");
+  tutorialContainer.width = "100%";
+  tutorialContainer.height = "100%";
+  tutorialContainer.thickness = 0;
+  tutorialContainer.background = "transparent";
+  tutorialOverlay.addControl(tutorialContainer);
+
+  // Tutorial content panel
   const tutorialPanel = new Rectangle("tutorialPanel");
-  tutorialPanel.width = isTouchDevice ? "90%" : "420px";
+  tutorialPanel.width = isTouchDevice ? "340px" : "420px";
   tutorialPanel.adaptHeightToChildren = true;
   tutorialPanel.background = "transparent";
   tutorialPanel.thickness = 0;
   tutorialPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
   tutorialPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-  tutorialOverlay.addControl(tutorialPanel);
+  tutorialContainer.addControl(tutorialPanel);
 
   // Stack for tutorial content
   const tutorialStack = new StackPanel("tutorialStack");
   tutorialStack.width = "100%";
-  tutorialStack.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
   tutorialPanel.addControl(tutorialStack);
 
   // Title
