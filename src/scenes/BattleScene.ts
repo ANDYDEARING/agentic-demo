@@ -2428,7 +2428,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
     const container = new StackPanel();
     container.width = screenWidth < BREAKPOINT_SMALL_MOBILE ? "95%" : "600px";
-    container.height = "200px";
+    container.height = "250px";
     overlay.addControl(container);
 
     // Convert Color3 to hex
@@ -2438,12 +2438,14 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
     const colorHex = `#${r}${g}${b}`;
 
     const text = new TextBlock();
-    text.text = `${winnerName} Wins!`;
+    text.text = `${winnerName}\nWins!`;
     text.color = colorHex;
     text.fontSize = screenWidth < BREAKPOINT_SMALL_MOBILE ? 48 : 72;
     text.width = "100%";
-    text.height = "100px";
+    text.height = "150px";
     text.fontWeight = "bold";
+    text.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    text.textWrapping = true;
     container.addControl(text);
 
     // Back to loadout button

@@ -274,7 +274,8 @@ export function createUnitCard(config: UnitCardConfig): UnitCardController {
   const cardGrid = new Grid(`cardGrid_${key}`);
   cardGrid.width = "100%";
   if (useVerticalLayout) {
-    const baseHeight = screenWidth < 400 ? 260 : screenWidth < 800 ? 200 : 180;
+    // Heights tuned for content: title (32px) + desc (~60-80px) + spacer + tap label (20px) + padding
+    const baseHeight = screenWidth < 400 ? 280 : screenWidth < 800 ? 220 : 200;
     cardGrid.height = `${baseHeight}px`;
   } else {
     cardGrid.height = "100%";
@@ -297,6 +298,7 @@ export function createUnitCard(config: UnitCardConfig): UnitCardController {
   copyStack.isVertical = true;
   copyStack.width = "100%";
   copyStack.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+  copyStack.adaptHeightToChildren = true;
   copyWrapper.addControl(copyStack);
 
   // Title row
@@ -352,9 +354,10 @@ export function createUnitCard(config: UnitCardConfig): UnitCardController {
   spacer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
   copyStack.addControl(spacer);
 
-  // "click/tap to edit" label
+  // "click/tap to edit" label - use touch detection, not screen size
+  const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
   const tapLabel = new TextBlock(`tapLabel_${key}`);
-  tapLabel.text = isMobile ? "tap to edit" : "click to edit";
+  tapLabel.text = isTouchDevice ? "tap to edit" : "click to edit";
   tapLabel.color = COLORS.textMuted;
   tapLabel.fontSize = 10;
   tapLabel.fontStyle = "italic";

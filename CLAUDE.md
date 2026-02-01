@@ -132,6 +132,18 @@ When implementing features:
 
 **Note**: Never run the dev server (`npm run dev`) - the user handles that. Only run `npm run build` to verify TypeScript compiles.
 
+## PR Review Criteria
+
+When reviewing branches/PRs, evaluate against these goals:
+
+1. **Coding standards** - Industry PR standards (build passes, no regressions, consistent style, meaningful commit messages)
+2. **No dead code** - Remove unused imports, functions, variables, and commented-out code
+3. **Context-optimized for AI development** - Keep files small and focused so future AI sessions can work effectively:
+   - Extract large inline code blocks into dedicated modules
+   - BattleScene.ts should trend smaller, not larger
+   - Pure logic in `/src/battle/`, visuals in `/src/scenes/battle/`
+   - Headless simulation readiness must be maintained
+
 ## Open Questions (see docs/requirements.md)
 
 - Turn structure (full team vs alternating activations)
