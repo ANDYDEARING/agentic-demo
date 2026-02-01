@@ -429,6 +429,8 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
           refreshAllOptions();
         }
         updateDescriptions();
+        // Reload model since different classes have different models
+        previewController?.reload();
       }
     }
   ));
