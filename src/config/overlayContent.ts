@@ -78,8 +78,9 @@ UNIT BASE STATS:
   Medic:    HP ${medic.hp} | ATK ${medic.attack} | Move ${medic.moveRange}
 
 DAMAGE FORMULA:
-  ${WEAPON_DATA.pistol.name}: ATK x ${pistolMultiplier} = ${soldier.attack * pistolMultiplier} damage
-  ${WEAPON_DATA.sword.name}:  ATK x ${swordMultiplier} = ${soldier.attack * swordMultiplier} damage
+  Damage = ATK x Weapon Multiplier
+  ${WEAPON_DATA.pistol.name}: x${pistolMultiplier} | ${WEAPON_DATA.sword.name}: x${swordMultiplier}
+  Example: Soldier (ATK ${soldier.attack}) + Sword = ${soldier.attack} x ${swordMultiplier} = ${soldier.attack * swordMultiplier}
 
 BOOSTS:
   Tough (+${toughPct}% HP):    HP ${soldier.hp} -> ${Math.round(soldier.hp * (1 + BOOST_DATA.tough.multiplier))}

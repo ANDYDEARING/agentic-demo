@@ -90,7 +90,6 @@ function createUnitFromLoadout(
     attack: Math.round(baseStats.attack * attackMultiplier),
     healAmount: baseStats.healAmount,
     moveRange: baseStats.moveRange,
-    attackRange: baseStats.attackRange,
     weapon: loadout.weapon,
     speed: baseStats.speed * speedMultiplier,
     speedBonus: 0,

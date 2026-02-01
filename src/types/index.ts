@@ -81,6 +81,8 @@ export interface Loadout {
 // CLASS DATA
 // =============================================================================
 
+import { CLASS_BASE_STATS } from "../config/balance";
+
 /** Static data defining a unit class's stats and abilities */
 export interface ClassData {
   id: UnitClass;
@@ -88,24 +90,20 @@ export interface ClassData {
   description: string;
   hp: number;
   attack: number;
+  speed: number;
   moveRange: number;
-  attackRange: number;
   healAmount: number;
   ability: string;
   modelFile: string;  // Base filename without gender suffix
 }
 
-/** Class definitions with base stats */
+/** Class definitions - stats pulled from balance.ts */
 export const CLASS_DATA: Record<UnitClass, ClassData> = {
   soldier: {
     id: "soldier",
     name: "Soldier",
     description: "Frontline fighter. Uses Cover to protect allies.",
-    hp: 75,
-    attack: 20,
-    moveRange: 3,
-    attackRange: 2,
-    healAmount: 0,
+    ...CLASS_BASE_STATS.soldier,
     ability: "Cover",
     modelFile: "soldier",
   },
@@ -113,11 +111,7 @@ export const CLASS_DATA: Record<UnitClass, ClassData> = {
     id: "operator",
     name: "Operator",
     description: "Stealth specialist. Uses Conceal to avoid damage.",
-    hp: 75,
-    attack: 20,
-    moveRange: 3,
-    attackRange: 2,
-    healAmount: 0,
+    ...CLASS_BASE_STATS.operator,
     ability: "Conceal",
     modelFile: "operator",
   },
@@ -125,11 +119,7 @@ export const CLASS_DATA: Record<UnitClass, ClassData> = {
     id: "medic",
     name: "Medic",
     description: "Support unit. Heals adjacent allies (requires LOS for diagonals).",
-    hp: 75,
-    attack: 20,
-    moveRange: 3,
-    attackRange: 2,
-    healAmount: 25,
+    ...CLASS_BASE_STATS.medic,
     ability: "Heal",
     modelFile: "medic",
   },
@@ -202,7 +192,6 @@ export interface Unit {
 
   // Stats
   moveRange: number;
-  attackRange: number;
   hp: number;
   maxHp: number;
   attack: number;

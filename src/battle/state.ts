@@ -61,7 +61,6 @@ export interface UnitState {
   attack: number;
   healAmount: number;
   moveRange: number;
-  attackRange: number;
 
   /** Weapon type determines attack pattern and damage multiplier */
   weapon: WeaponType;

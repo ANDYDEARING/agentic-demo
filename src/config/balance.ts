@@ -102,7 +102,7 @@ export const BOOST_DATA: Record<BoostType, BoostData> = {
     name: "Quick",
     description: "+Speed",
     stat: "speed",
-    multiplier: 0.25,
+    multiplier: 0.20,
   },
 };
 
@@ -136,18 +136,16 @@ export interface ClassBaseStats {
   attack: number;
   speed: number;
   moveRange: number;
-  attackRange: number;
   healAmount: number;
 }
 
 /** Per-class base stats - independently editable */
 export const CLASS_BASE_STATS: Record<UnitClass, ClassBaseStats> = {
   soldier: {
-    hp: 75,
-    attack: 20,
-    speed: 1.0,
-    moveRange: 3,
-    attackRange: 2,
+    hp: 80,
+    attack: 25,
+    speed: 0.9,
+    moveRange: 2,
     healAmount: 0,
   },
   operator: {
@@ -155,15 +153,13 @@ export const CLASS_BASE_STATS: Record<UnitClass, ClassBaseStats> = {
     attack: 20,
     speed: 1.0,
     moveRange: 3,
-    attackRange: 2,
     healAmount: 0,
   },
   medic: {
-    hp: 75,
-    attack: 20,
-    speed: 1.0,
-    moveRange: 3,
-    attackRange: 2,
+    hp: 70,
+    attack: 18,
+    speed: 1.1,
+    moveRange: 4,
     healAmount: 25,
   },
 };
@@ -189,7 +185,6 @@ export function calculateUnitStats(
   attack: number;
   speed: number;
   moveRange: number;
-  attackRange: number;
   healAmount: number;
   damageMultiplier: number;
 } {
@@ -207,7 +202,6 @@ export function calculateUnitStats(
     attack: Math.round(base.attack * attackMultiplier),
     speed: base.speed * speedMultiplier,
     moveRange: base.moveRange,
-    attackRange: base.attackRange,
     healAmount: base.healAmount,
     damageMultiplier: weaponData.damageMultiplier,
   };

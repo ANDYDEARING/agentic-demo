@@ -213,7 +213,7 @@ export async function createUnit(
 
   const boostedHp = Math.round(classData.hp * hpMultiplier);
   const boostedAttack = Math.round(classData.attack * attackMultiplier);
-  const boostedSpeed = 1 * speedMultiplier;
+  const boostedSpeed = classData.speed * speedMultiplier;
 
   return {
     mesh: hpBarAnchor,
@@ -222,7 +222,6 @@ export async function createUnit(
     gridX,
     gridZ,
     moveRange: classData.moveRange,
-    attackRange: classData.attackRange,
     hp: boostedHp,
     maxHp: boostedHp,
     attack: boostedAttack,

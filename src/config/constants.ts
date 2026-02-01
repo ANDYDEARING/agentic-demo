@@ -157,9 +157,6 @@ export const ACCUMULATOR_THRESHOLD = 10;
 /** Speed bonus granted per unused action (encourages ending turn early) */
 export const SPEED_BONUS_PER_UNUSED_ACTION = 0.25;
 
-/** Default unit speed value */
-export const BASE_UNIT_SPEED = 1;
-
 /**
  * @deprecated Use WEAPON_DATA.sword.damageMultiplier from balance.ts instead.
  * Kept for backwards compatibility.

@@ -591,7 +591,6 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       attack: unit.attack,
       healAmount: unit.healAmount,
       moveRange: unit.moveRange,
-      attackRange: unit.attackRange,
       weapon: unit.customization?.weapon ?? "pistol",
       speed: unit.speed,
       speedBonus: unit.speedBonus,
@@ -701,7 +700,6 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       attack: unit.attack,
       healAmount: unit.healAmount,
       moveRange: unit.moveRange,
-      attackRange: unit.attackRange,
       weapon: unit.customization?.weapon ?? "pistol",
       speed: unit.speed,
       speedBonus: unit.speedBonus,
@@ -1720,19 +1718,6 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
   // getPathToTarget delegates to rules.ts via wrapper defined in STATE BRIDGE section
 
-  // Legacy function - kept for potential AI/simulation use (simpler than LOS version)
-  function getAttackableEnemiesSimple(unit: Unit, fromX?: number, fromZ?: number): Unit[] {
-    if (!hasActionsRemaining()) return []; // No actions remaining
-    // Use shadow position if pending move, otherwise use provided or current position
-    const effectiveX = fromX ?? shadowPosition?.x ?? unit.gridX;
-    const effectiveZ = fromZ ?? shadowPosition?.z ?? unit.gridZ;
-    return units.filter(u => {
-      if (u.team === unit.team) return false;
-      const distance = Math.abs(u.gridX - effectiveX) + Math.abs(u.gridZ - effectiveZ);
-      return distance <= unit.attackRange;
-    });
-  }
-  void getAttackableEnemiesSimple;
 
   function getHealableAllies(unit: Unit, fromX?: number, fromZ?: number): Unit[] {
     // Only medic can heal, needs actions remaining
@@ -5391,7 +5376,7 @@ async function createUnit(
 
   const boostedHp = Math.round(classData.hp * hpMultiplier);
   const boostedAttack = Math.round(classData.attack * attackMultiplier);
-  const boostedSpeed = 1 * speedMultiplier;
+  const boostedSpeed = classData.speed * speedMultiplier;
 
   return {
     mesh: hpBarAnchor,  // Use anchor as the main "mesh" for positioning
@@ -5400,7 +5385,6 @@ async function createUnit(
     gridX,
     gridZ,
     moveRange: classData.moveRange,
-    attackRange: classData.attackRange,
     hp: boostedHp,
     maxHp: boostedHp,
     attack: boostedAttack,
