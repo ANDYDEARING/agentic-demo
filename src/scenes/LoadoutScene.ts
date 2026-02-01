@@ -24,7 +24,7 @@ import {
   Image,
 } from "@babylonjs/gui";
 import { ALL_CLASSES, getClassData, Loadout, UnitClass, UnitCustomization, SceneName } from "../types";
-import { getGameMode, setGameMode } from "../main";
+import { getGameMode, setGameMode, registerActiveMusic } from "../main";
 import { enableTouchScroll } from "../utils";
 
 // Import centralized config
@@ -41,6 +41,9 @@ import {
   BREAKPOINT_TABLET_MIN,
   BREAKPOINT_DESKTOP_MIN,
   BREAKPOINT_LARGE_DESKTOP_MIN,
+  SCROLLBAR_SIZE,
+  SCROLLBAR_COLOR,
+  SCROLLBAR_BACKGROUND,
 } from "../config";
 import { MUSIC, AUDIO_VOLUMES, LOOP_BUFFER_TIME, DEBUG_SKIP_OFFSET } from "../config";
 import { createMusicPlayer, hexToColor3, hexToColor4, type MusicPlayer } from "../utils";
@@ -256,6 +259,8 @@ export function createLoadoutScene(
     loadoutMusic = createMusicPlayer(MUSIC.loadout, AUDIO_VOLUMES.music, true, LOOP_BUFFER_TIME);
     loadoutMusic.play();
   }
+  // Register with global audio manager for pause on background
+  registerActiveMusic(loadoutMusic);
 
   // Debug skip key
   const skipHandler = (e: KeyboardEvent) => {
@@ -436,7 +441,15 @@ export function createLoadoutScene(
   scrollViewer.height = "100%";
   scrollViewer.thickness = 0;
   scrollViewer.wheelPrecision = 0.05;
+  // Scrollbar styling: centralized colors, vertical only
+  scrollViewer.barSize = SCROLLBAR_SIZE;
+  scrollViewer.barColor = SCROLLBAR_COLOR;
+  scrollViewer.barBackground = SCROLLBAR_BACKGROUND;
   gui.addControl(scrollViewer);
+  // Hide horizontal scrollbar
+  if (scrollViewer.horizontalBar) {
+    scrollViewer.horizontalBar.isVisible = false;
+  }
 
   // Main content stack
   const mainStack = new StackPanel("mainStack");
@@ -450,7 +463,7 @@ export function createLoadoutScene(
 
   // Enable touch scrolling with RTT pause callbacks
   const mainScrollCleanup = enableTouchScroll(scrollViewer, mainStack, {
-    hideScrollbar: true,
+    hideScrollbar: false,  // Show scrollbar when content overflows
     onScrollStart: () => { isScrolling = true; },
     onScrollEnd: () => { isScrolling = false; },
     scrollEndDelay: 150
@@ -1023,13 +1036,12 @@ export function createLoadoutScene(
     copyStack.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
     copyWrapper.addControl(copyStack);
 
-    // Title row: Symbol left, Class center, Edit right
+    // Title row: Symbol left, Class center
     const titleRow = new Grid(`titleRow_${key}`);
     titleRow.width = "100%";
     titleRow.height = "32px";
     titleRow.addColumnDefinition(isMobile ? 28 : 32, true); // Symbol fixed width
     titleRow.addColumnDefinition(1, false); // Class name takes remaining space
-    titleRow.addColumnDefinition(isMobile ? 32 : 50, true); // Edit button fixed width
     titleRow.addRowDefinition(1);
     copyStack.addControl(titleRow);
 
@@ -1054,27 +1066,6 @@ export function createLoadoutScene(
     classText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
     titleRow.addControl(classText, 0, 1);
 
-    // Edit button (right)
-    const editBtn = Button.CreateSimpleButton(`edit_${key}`, isMobile ? "✎" : "Edit");
-    editBtn.width = isMobile ? "28px" : "45px";
-    editBtn.height = isMobile ? "28px" : "26px";
-    editBtn.background = COLORS.bgButton;
-    editBtn.color = COLORS.textPrimary;
-    editBtn.cornerRadius = isMobile ? 14 : 4;
-    editBtn.fontSize = isMobile ? 14 : 11;
-    editBtn.thickness = 1;
-    editBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    editBtn.onPointerEnterObservable.add(() => {
-      editBtn.background = COLORS.bgButtonHover;
-    });
-    editBtn.onPointerOutObservable.add(() => {
-      editBtn.background = COLORS.bgButton;
-    });
-    editBtn.onPointerClickObservable.add(() => {
-      openCustomizeEditor(playerId, unitIndex);
-    });
-    titleRow.addControl(editBtn, 0, 2);
-
     // Description - auto-sizes to content
     const descText = new TextBlock(`desc_${key}`);
     descText.text = getUnitDescription(state.selectedClass, state.selectedBoost, state.selectedStyle);
@@ -1088,6 +1079,33 @@ export function createLoadoutScene(
     descText.paddingLeft = "2px";
     descText.paddingRight = "5px";
     copyStack.addControl(descText);
+
+    // Add "click/tap to edit" label at bottom and make copy area clickable
+    // Spacer to push label to bottom
+    const spacer = new Rectangle(`spacer_${key}`);
+    spacer.height = "1px";
+    spacer.width = "100%";
+    spacer.thickness = 0;
+    spacer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    copyStack.addControl(spacer);
+
+    // "click/tap to edit" label centered at bottom
+    const tapLabel = new TextBlock(`tapLabel_${key}`);
+    tapLabel.text = isMobile ? "tap to edit" : "click to edit";
+    tapLabel.color = COLORS.textMuted;
+    tapLabel.fontSize = 10;
+    tapLabel.fontStyle = "italic";
+    tapLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    tapLabel.height = "16px";
+    tapLabel.paddingTop = "4px";
+    copyStack.addControl(tapLabel);
+
+    // Make the entire copy wrapper clickable
+    copyWrapper.isPointerBlocker = true;
+    copyWrapper.hoverCursor = "pointer";
+    copyWrapper.onPointerClickObservable.add(() => {
+      openCustomizeEditor(playerId, unitIndex);
+    });
 
     // Right column: preview
     const previewContainer = new Rectangle(`preview_${key}`);
@@ -1190,6 +1208,44 @@ export function createLoadoutScene(
     let totalRotation = 0;
     let currentAnimPhase = 0; // 0=idle, 1=attack, 2=run
 
+    // Function to cycle to next animation (reusable for click and auto-cycle)
+    const cycleToNextAnimation = (): void => {
+      if (!previewModelLoaded || unitPreviewAnims.length === 0) return;
+
+      totalRotation = 0;
+      currentAnimPhase = (currentAnimPhase + 1) % 3;
+
+      const state = unitStates[key];
+      const isMelee = state.selectedStyle === "melee";
+
+      // Stop current animations
+      unitPreviewAnims.forEach(ag => ag.stop());
+
+      if (currentAnimPhase === 0) {
+        // Idle
+        const idleAnim = isMelee
+          ? unitPreviewAnims.find(ag => ag.name === "Idle_Sword")
+          : unitPreviewAnims.find(ag => ag.name === "Idle_Gun");
+        if (idleAnim) idleAnim.start(true);
+      } else if (currentAnimPhase === 1) {
+        // Attack (loop for full rotation)
+        const attackAnim = isMelee
+          ? unitPreviewAnims.find(ag => ag.name === "Sword_Slash")
+          : unitPreviewAnims.find(ag => ag.name === "Gun_Shoot");
+        if (attackAnim) attackAnim.start(true);
+      } else if (currentAnimPhase === 2) {
+        // Run (loop for full rotation)
+        const runAnim = unitPreviewAnims.find(ag => ag.name === "Run");
+        if (runAnim) runAnim.start(true);
+      }
+    };
+
+    // Click on preview to cycle animation
+    innerContainer.isPointerBlocker = true;
+    innerContainer.onPointerClickObservable.add(() => {
+      cycleToNextAnimation();
+    });
+
     rtt.onAfterRenderObservable.add(() => {
       if (!previewModelLoaded) return;
 
@@ -1201,32 +1257,7 @@ export function createLoadoutScene(
 
       // After one full rotation, cycle to next animation
       if (totalRotation >= Math.PI * 2) {
-        totalRotation = 0;
-        currentAnimPhase = (currentAnimPhase + 1) % 3;
-
-        const state = unitStates[key];
-        const isMelee = state.selectedStyle === "melee";
-
-        // Stop current animations
-        unitPreviewAnims.forEach(ag => ag.stop());
-
-        if (currentAnimPhase === 0) {
-          // Idle
-          const idleAnim = isMelee
-            ? unitPreviewAnims.find(ag => ag.name === "Idle_Sword")
-            : unitPreviewAnims.find(ag => ag.name === "Idle_Gun");
-          if (idleAnim) idleAnim.start(true);
-        } else if (currentAnimPhase === 1) {
-          // Attack (loop for full rotation)
-          const attackAnim = isMelee
-            ? unitPreviewAnims.find(ag => ag.name === "Sword_Slash")
-            : unitPreviewAnims.find(ag => ag.name === "Gun_Shoot");
-          if (attackAnim) attackAnim.start(true);
-        } else if (currentAnimPhase === 2) {
-          // Run (loop for full rotation)
-          const runAnim = unitPreviewAnims.find(ag => ag.name === "Run");
-          if (runAnim) runAnim.start(true);
-        }
+        cycleToNextAnimation();
       }
 
       // Only update image every few frames for performance
@@ -1703,8 +1734,10 @@ export function createLoadoutScene(
   optionsScroll.width = "100%";
   optionsScroll.height = "100%";
   optionsScroll.thickness = 0;
-  optionsScroll.barSize = 8;
-  optionsScroll.barColor = COLORS.borderWarm;
+  // Scrollbar styling: centralized colors (shows when needed)
+  optionsScroll.barSize = SCROLLBAR_SIZE;
+  optionsScroll.barColor = SCROLLBAR_COLOR;
+  optionsScroll.barBackground = SCROLLBAR_BACKGROUND;
 
   if (isSmallScreen) {
     if (isEditorPortrait) {
@@ -1717,6 +1750,10 @@ export function createLoadoutScene(
   } else {
     // Large: options on left (col 0)
     editorGrid.addControl(optionsScroll, 0, 0);
+  }
+  // Hide horizontal scrollbar
+  if (optionsScroll.horizontalBar) {
+    optionsScroll.horizontalBar.isVisible = false;
   }
 
   const optionsStack = new StackPanel("editorOptionsStack");

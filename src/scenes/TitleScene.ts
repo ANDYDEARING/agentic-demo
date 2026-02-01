@@ -7,7 +7,7 @@ import {
 } from "@babylonjs/core";
 import { AdvancedDynamicTexture, TextBlock, StackPanel, Rectangle, Control, Button } from "@babylonjs/gui";
 import type { SceneName, GameMode } from "../types";
-import { setGameMode } from "../main";
+import { setGameMode, registerActiveMusic } from "../main";
 import { createMusicPlayer, createResponsiveOverlay, type MusicPlayer } from "../utils";
 import {
   SCENE_BACKGROUNDS,
@@ -55,6 +55,8 @@ export function createTitleScene(
     titleMusic = createMusicPlayer(MUSIC.title, AUDIO_VOLUMES.music, true, LOOP_BUFFER_TIME);
     titleMusic.play();
   }
+  // Register with global audio manager for pause on background
+  registerActiveMusic(titleMusic);
 
   // Press S to skip to near end (to test loop behavior)
   const skipHandler = (e: KeyboardEvent) => {
@@ -307,7 +309,7 @@ export function createTitleScene(
 
   // Version label
   const versionLabel = new TextBlock();
-  versionLabel.text = "[ DEMO - Early - NOT BALANCED ] v0.2";
+  versionLabel.text = "[ DEMO - Early - NOT BALANCED ] v0.21";
   versionLabel.color = hasFadedIn ? "rgba(180, 180, 180, 1)" : "rgba(180, 180, 180, 0)";
   versionLabel.fontFamily = "'Exo 2', sans-serif";
   versionLabel.fontSize = 11;

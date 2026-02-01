@@ -8,6 +8,54 @@ import type { Loadout, SceneName, GameMode } from "./types";
 // Re-export for backwards compatibility
 export type { SceneName } from "./types";
 
+// ============================================
+// GLOBAL AUDIO MANAGEMENT
+// ============================================
+// Handles pausing audio when app is backgrounded/locked
+
+/** Currently playing music element (set by scenes) */
+let activeMusic: HTMLAudioElement | null = null;
+let musicWasPaused = false;
+
+/** Register the currently playing music (call from scenes when music starts) */
+export function registerActiveMusic(audio: HTMLAudioElement | null): void {
+  activeMusic = audio;
+  musicWasPaused = false;
+}
+
+/** Handle visibility changes to pause music */
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    // Page is hidden (backgrounded, locked, tab switched)
+    if (activeMusic && !activeMusic.paused) {
+      musicWasPaused = true;
+      activeMusic.pause();
+    }
+  } else {
+    // Page is visible again - try to resume (may be blocked by iOS)
+    if (activeMusic && musicWasPaused) {
+      activeMusic.play().catch(() => {
+        // Autoplay blocked - will resume on next user interaction
+      });
+    }
+  }
+});
+
+/** Resume music on user interaction (required for iOS after visibility change) */
+function resumeMusicOnInteraction() {
+  if (activeMusic && musicWasPaused && activeMusic.paused) {
+    activeMusic.play().then(() => {
+      musicWasPaused = false;
+    }).catch(() => {
+      // Still blocked - will try again on next interaction
+    });
+  }
+}
+
+// Listen for user interactions to resume music (iOS requirement)
+document.addEventListener("touchstart", resumeMusicOnInteraction, { passive: true });
+document.addEventListener("click", resumeMusicOnInteraction);
+
 const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 const engine = new Engine(canvas, true, {
   // Reduce shader complexity and improve stability

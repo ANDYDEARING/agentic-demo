@@ -323,3 +323,16 @@ export const BREAKPOINT_LARGE_DESKTOP_MIN = 1200;
 
 /** Width threshold for small mobile adjustments */
 export const BREAKPOINT_SMALL_MOBILE = 500;
+
+// =============================================================================
+// SCROLLBAR STYLING
+// =============================================================================
+
+/** Scrollbar thumb/bar color (orange theme) */
+export const SCROLLBAR_COLOR = "#ff9650";
+
+/** Scrollbar track/background color (dark theme) */
+export const SCROLLBAR_BACKGROUND = "#1a1a1a";
+
+/** Scrollbar width in pixels */
+export const SCROLLBAR_SIZE = 10;
