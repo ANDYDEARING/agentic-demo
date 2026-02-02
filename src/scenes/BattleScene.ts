@@ -112,7 +112,6 @@ let battleMusic: MusicPlayer | null = null;
 
 // Import command pattern for action queue
 import {
-  type CommandExecutor,
   type ControllerContext,
   type BattleCommand,
   CommandQueue,
@@ -167,17 +166,12 @@ import {
 // Animation functions are pure and can be used directly
 // faceClosestEnemy and faceAverageEnemyPosition need units array passed in
 import {
-  // Terrain - available for future use
-  createTerrain as _createTerrain,
-  hasTerrain as _hasTerrainFromSet,
-  // Animations - using directly (most are pure, some need units array)
   playAnimation,
   playIdleAnimation,
   initFacing,
   faceClosestEnemy,
   faceAverageEnemyPosition,
   setUnitFacing,
-  // Unit visuals - using directly
   UNIT_DESIGNATIONS,
   updateHpBar,
   setUnitExhausted,
@@ -185,15 +179,11 @@ import {
   resetUnitAppearance,
   applyConcealVisual,
   removeConcealVisual,
-  // Tutorial overlay
   createTutorialOverlay,
 } from "./battle";
 
 // Import pure replay data structures (for online sync compatibility)
-// Types are from pure logic layer - serializable for network/persistence
 import type { UnitSnapshot, TeamTurnRecord, UnitTurnRecord } from "../battle/replay";
-// Suppress unused import warnings (these are available for future migration)
-void _createTerrain; void _hasTerrainFromSet;
 
 // Import from loadout constants
 import { BOOST_INFO } from "./loadout/constants";
@@ -656,8 +646,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
   // ============================================
   // TUTORIAL OVERLAY (extracted to ./battle/ui/tutorial.ts)
   // ============================================
-  const _tutorialOverlay = createTutorialOverlay(gui);
-  void _tutorialOverlay; // Available for programmatic show/hide if needed
+  createTutorialOverlay(gui);
 
   // Units
   const units: Unit[] = [];
@@ -900,18 +889,6 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       },
     };
   }
-
-  // Note: Controller manager functions available for runtime mode switching.
-  // Currently unused but kept for future network play or settings menu implementation.
-  function _getControllerManager(): ControllerManager {
-    return controllerManager;
-  }
-  function _setControllerManager(manager: ControllerManager): void {
-    controllerManager.dispose();
-    controllerManager = manager;
-  }
-  void _getControllerManager;
-  void _setControllerManager;
 
   // Callback for when a unit's turn starts (set later by command menu)
   let onTurnStartCallback: ((unit: Unit) => void) | null = null;
@@ -2440,6 +2417,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
     const backBtn = Button.CreateSimpleButton("backBtn", "Back to Loadout");
     backBtn.width = "200px";
     backBtn.height = "50px";
+    backBtn.paddingTop = "20px";
     backBtn.color = "white";
     backBtn.background = "#444444";
     backBtn.cornerRadius = 10;
@@ -3127,79 +3105,6 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       }
     });
   }
-
-  // ============================================
-  // COMMAND EXECUTOR
-  // ============================================
-  // Implements the CommandExecutor interface from /src/battle/commands.ts
-  // This allows actions to be executed via the command pattern.
-
-  /**
-   * Command executor implementation for the battle scene.
-   * Bridges between pure commands and visual execution.
-   * Note: Currently unused - kept for future headless simulation support.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _commandExecutor: CommandExecutor = {
-    executeMove(command, onComplete) {
-      if (!turnState) { onComplete(); return; }
-      const unit = turnState.unit;
-      animateMovement(unit, command.targetX, command.targetZ, () => {
-        updateCornerIndicators(unit);
-        onComplete();
-      });
-    },
-
-    executeAttack(command, onComplete) {
-      if (!turnState) { onComplete(); return; }
-      const unit = turnState.unit;
-      const target = findUnitById(command.targetUnitId);
-      if (!target || target.hp <= 0) { onComplete(); return; }
-      executeAttack(unit, target, onComplete);
-    },
-
-    executeHeal(command, onComplete) {
-      if (!turnState) { onComplete(); return; }
-      const unit = turnState.unit;
-      const target = findUnitById(command.targetUnitId);
-      if (!target) { onComplete(); return; }
-      executeHeal(unit, target, onComplete);
-    },
-
-    executeConceal(_command, onComplete) {
-      if (!turnState) { onComplete(); return; }
-      executeConceal(turnState.unit, onComplete);
-    },
-
-    executeCover(_command, onComplete) {
-      if (!turnState) { onComplete(); return; }
-      const unit = turnState.unit;
-      // Find final position from remaining commands
-      const lastMove = commandQueue.getLastMoveCommand();
-      const finalX = lastMove?.targetX ?? unit.gridX;
-      const finalZ = lastMove?.targetZ ?? unit.gridZ;
-      executeCover(unit, onComplete, finalX, finalZ);
-    },
-
-    onQueueComplete() {
-      if (turnState) {
-        faceClosestEnemy(turnState.unit, units);
-      }
-      isExecutingActions = false;
-      endCurrentUnitTurn();
-    },
-
-    checkReactions(onReactionComplete) {
-      if (!turnState || turnState.unit.hp <= 0) return false;
-      return checkAndTriggerCoverReaction(turnState.unit, () => {
-        faceClosestEnemy(turnState!.unit, units);
-        isExecutingActions = false;
-        endCurrentUnitTurn();
-        onReactionComplete();
-      });
-    },
-  };
-  void _commandExecutor;
 
   // ============================================
   // UNDO SYSTEM

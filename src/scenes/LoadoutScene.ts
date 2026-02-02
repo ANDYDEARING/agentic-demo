@@ -505,8 +505,9 @@ export function createLoadoutScene(
         (parent as StackPanel).addControl(cardCtrl.card);
       }
 
-      // Create preview
+      // Create preview - clicking opens editor directly
       const layerMask = 0x10000000 << (playerId === "player1" ? i : i + 3);
+      const unitIndex = i; // Capture for closure
       const preview = createUnitPreview({
         scene,
         container: cardCtrl.previewContainer,
@@ -515,6 +516,7 @@ export function createLoadoutScene(
         getTeamColor: () => playerId === "player1" ? selections.player1TeamColor! : selections.player2TeamColor!,
         getState: () => unitStates[key],
         isScrolling: () => isScrolling,
+        onPreviewClick: () => editor.open(playerId, unitIndex),
         disableMaterialIBL,
         registerForCleanup: (meshes, anims) => {
           meshes.forEach(m => loadedMeshes.push(m));

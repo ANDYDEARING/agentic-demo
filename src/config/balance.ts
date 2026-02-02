@@ -86,7 +86,7 @@ export const BOOST_DATA: Record<BoostType, BoostData> = {
     name: "Tough",
     description: "+HP",
     stat: "hp",
-    multiplier: 0.3,
+    multiplier: 0.35,
   },
   deadly: {
     id: "deadly",
@@ -94,7 +94,7 @@ export const BOOST_DATA: Record<BoostType, BoostData> = {
     name: "Deadly",
     description: "+ATK",
     stat: "attack",
-    multiplier: 0.25,
+    multiplier: 0.32,
   },
   quick: {
     id: "quick",
@@ -102,7 +102,7 @@ export const BOOST_DATA: Record<BoostType, BoostData> = {
     name: "Quick",
     description: "+Speed",
     stat: "speed",
-    multiplier: 0.20,
+    multiplier: 0.10,
   },
 };
 

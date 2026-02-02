@@ -68,6 +68,7 @@ export function showGameOver(
   const backBtn = Button.CreateSimpleButton("backBtn", "Back to Loadout");
   backBtn.width = "200px";
   backBtn.height = "50px";
+  backBtn.paddingTop = "20px";
   backBtn.color = "white";
   backBtn.background = "#444444";
   backBtn.cornerRadius = 10;

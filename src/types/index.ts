@@ -32,9 +32,6 @@ export type BodyType = "male" | "female";
 /** Weapon type determines attack pattern and damage multiplier */
 export type WeaponType = "sword" | "pistol";
 
-/** @deprecated Use WeaponType instead */
-export type CombatStyle = WeaponType;
-
 /** Handedness affects model orientation */
 export type Handedness = "right" | "left";
 

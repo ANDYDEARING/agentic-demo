@@ -115,6 +115,7 @@ function getAICommands(state: BattleState, unit: UnitState): BattleCommand[] {
   let actionsUsed = 0;
   const maxActions = ACTIONS_PER_TURN;
   const pendingDamage = new Map<string, number>();
+  const pendingHealing = new Map<string, number>();
 
   // Create a working copy of unit position for planning
   let currentX = unit.gridX;
@@ -131,6 +132,7 @@ function getAICommands(state: BattleState, unit: UnitState): BattleCommand[] {
       actionsUsed,
       maxActions,
       pendingDamage,
+      pendingHealing,
       isConcealed,
       isCovering
     );
@@ -156,6 +158,10 @@ function getAICommands(state: BattleState, unit: UnitState): BattleCommand[] {
       const current = pendingDamage.get(action.targetUnitId) || 0;
       pendingDamage.set(action.targetUnitId, current + damage);
     }
+    if (action.type === "heal") {
+      const current = pendingHealing.get(action.targetUnitId) || 0;
+      pendingHealing.set(action.targetUnitId, current + unit.healAmount);
+    }
   }
 
   return commands;
@@ -169,6 +175,7 @@ function chooseBestAction(
   actionsUsed: number,
   maxActions: number,
   pendingDamage: Map<string, number>,
+  pendingHealing: Map<string, number>,
   isConcealed: boolean,
   isCovering: boolean
 ): BattleCommand | null {
@@ -228,7 +235,8 @@ function chooseBestAction(
     allEnemies,
     actionsLeft,
     isConcealed,
-    isCovering
+    isCovering,
+    pendingHealing
   );
   if (abilityCommand) return abilityCommand;
 
@@ -291,7 +299,8 @@ function getClassAbility(
   allEnemies: UnitState[],
   actionsLeft: number,
   isConcealed: boolean,
-  isCovering: boolean
+  isCovering: boolean,
+  pendingHealing: Map<string, number>
 ): BattleCommand | null {
   switch (unit.unitClass) {
     case "operator":
@@ -311,7 +320,7 @@ function getClassAbility(
       break;
 
     case "medic":
-      return getMedicHealCommand(state, unit, currentX, currentZ, actionsLeft);
+      return getMedicHealCommand(state, unit, currentX, currentZ, pendingHealing);
   }
 
   return null;
@@ -322,15 +331,25 @@ function getMedicHealCommand(
   unit: UnitState,
   currentX: number,
   currentZ: number,
-  _actionsLeft: number
+  pendingHealing: Map<string, number>
 ): BattleCommand | null {
   const tempUnit = { ...unit, gridX: currentX, gridZ: currentZ };
   const healable = getHealableAllies(state, tempUnit);
 
-  if (healable.length > 0) {
-    // Prioritize lowest HP ally
-    healable.sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp);
-    return { type: "heal", targetUnitId: healable[0].id };
+  // Filter out allies who would be at full HP after pending heals
+  const needsHealing = healable.filter((ally) => {
+    const pending = pendingHealing.get(ally.id) || 0;
+    return ally.hp + pending < ally.maxHp;
+  });
+
+  if (needsHealing.length > 0) {
+    // Prioritize lowest effective HP ratio (accounting for pending heals)
+    needsHealing.sort((a, b) => {
+      const aEffective = (a.hp + (pendingHealing.get(a.id) || 0)) / a.maxHp;
+      const bEffective = (b.hp + (pendingHealing.get(b.id) || 0)) / b.maxHp;
+      return aEffective - bEffective;
+    });
+    return { type: "heal", targetUnitId: needsHealing[0].id };
   }
 
   return null;

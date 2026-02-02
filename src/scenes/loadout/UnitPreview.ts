@@ -37,6 +37,8 @@ export interface UnitPreviewConfig {
   isScrolling?: () => boolean;
   /** Enable touch/drag to rotate camera (editor only) */
   enableTouchRotation?: boolean;
+  /** Custom click handler (if not provided, cycles animation) */
+  onPreviewClick?: () => void;
   disableMaterialIBL: (meshes: AbstractMesh[]) => void;
   registerForCleanup: (meshes: AbstractMesh[], anims: AnimationGroup[]) => void;
   isSceneDisposed: () => boolean;
@@ -76,6 +78,7 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
     onLoadComplete,
     isScrolling = () => false,
     enableTouchRotation = false,
+    onPreviewClick,
     disableMaterialIBL,
     registerForCleanup,
     isSceneDisposed,
@@ -143,9 +146,10 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
   previewImage.alpha = 0;
   innerContainer.addControl(previewImage);
 
-  // Click to cycle animation
+  // Click handler - custom callback or default to cycle animation
   innerContainer.isPointerBlocker = true;
-  innerContainer.onPointerClickObservable.add(() => cycleAnimation());
+  const handleClick = onPreviewClick || (() => cycleAnimation());
+  innerContainer.onPointerClickObservable.add(handleClick);
 
   // Touch rotation state (for editor)
   let isDragging = false;
@@ -179,11 +183,15 @@ export function createUnitPreview(config: UnitPreviewConfig): UnitPreviewControl
       isDragging = false;
     });
 
-    // Override click to only cycle if not dragged
+    // Override click to only trigger if not dragged
     innerContainer.onPointerClickObservable.clear();
     innerContainer.onPointerClickObservable.add(() => {
       if (!pointerMoved) {
-        cycleAnimation();
+        if (onPreviewClick) {
+          onPreviewClick();
+        } else {
+          cycleAnimation();
+        }
         stopAutoRotation();
       }
     });
