@@ -5,7 +5,7 @@
  * These types enable headless game simulations without rendering.
  */
 
-import type { UnitClass, Team, CombatStyle } from "../types";
+import type { UnitClass, Team, WeaponType } from "../types";
 
 // =============================================================================
 // GRID & POSITION
@@ -61,10 +61,9 @@ export interface UnitState {
   attack: number;
   healAmount: number;
   moveRange: number;
-  attackRange: number;
 
-  /** Combat style determines weapon type and attack rules */
-  combatStyle: CombatStyle;
+  /** Weapon type determines attack pattern and damage multiplier */
+  weapon: WeaponType;
 
   /** Initiative system */
   speed: number;

@@ -98,3 +98,34 @@ export {
   createPvEControllers,
   createSimulationControllers,
 } from "./controllers";
+
+// Terrain generation (pure, no Babylon.js)
+export {
+  type GridPosition as TerrainGridPosition,
+  generateTerrainPositions,
+  createTerrainSet,
+} from "./terrain";
+
+// Headless command executor
+export {
+  type ActionResult,
+  type ExecutionResult,
+  type CommandWithUnit,
+  executeCommands,
+  removeDeadUnits,
+} from "./executor";
+
+// Headless battle runner
+export {
+  type UnitLoadout,
+  type BattleResult,
+  generateRandomLoadout,
+  runBattle,
+} from "./runner";
+
+// Simulation and statistics
+export {
+  type SimulationStats,
+  runSimulation,
+  printStats,
+} from "./simulation";

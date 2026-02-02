@@ -274,8 +274,9 @@ export function createUnitCard(config: UnitCardConfig): UnitCardController {
   const cardGrid = new Grid(`cardGrid_${key}`);
   cardGrid.width = "100%";
   if (useVerticalLayout) {
-    // Heights tuned for content: title (32px) + desc (~60-80px) + spacer + tap label (20px) + padding
-    const baseHeight = screenWidth < 400 ? 280 : screenWidth < 800 ? 220 : 200;
+    // Heights tuned for content: title (32px) + desc (~80px) + spacer + tap label (20px) + padding
+    // Increased from original to ensure "tap to edit" is visible
+    const baseHeight = screenWidth < 400 ? 300 : screenWidth < 800 ? 240 : 220;
     cardGrid.height = `${baseHeight}px`;
   } else {
     cardGrid.height = "100%";
@@ -334,7 +335,7 @@ export function createUnitCard(config: UnitCardConfig): UnitCardController {
 
   // Description
   const descText = new TextBlock(`desc_${key}`);
-  descText.text = getUnitDescription(state.selectedClass, state.selectedBoost, state.selectedStyle);
+  descText.text = getUnitDescription(state.selectedClass, state.selectedBoost, state.selectedWeapon);
   descText.color = COLORS.textSecondary;
   descText.fontSize = isMobile ? 11 : isTablet ? 12 : 13;
   descText.textWrapping = true;
@@ -384,7 +385,7 @@ export function createUnitCard(config: UnitCardConfig): UnitCardController {
   function updateCard(): void {
     const s = getState();
     classText.text = CLASS_INFO[s.selectedClass].name;
-    descText.text = getUnitDescription(s.selectedClass, s.selectedBoost, s.selectedStyle);
+    descText.text = getUnitDescription(s.selectedClass, s.selectedBoost, s.selectedWeapon);
   }
 
   return {

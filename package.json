@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "simulation": "npx tsx scripts/simulate.ts"
   },
   "repository": {
     "type": "git",
@@ -25,5 +26,8 @@
     "@babylonjs/loaders": "^8.46.2",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
   }
 }

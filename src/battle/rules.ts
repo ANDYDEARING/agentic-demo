@@ -8,7 +8,8 @@
 
 import type { BattleState, UnitState, GridPosition } from "./state";
 import { toGridKey, hasTerrain, isInBounds, getUnitAt, getTeamUnits } from "./state";
-import { ACCUMULATOR_THRESHOLD, MELEE_DAMAGE_MULTIPLIER, LOS_EPSILON } from "../config";
+import { ACCUMULATOR_THRESHOLD, LOS_EPSILON } from "../config/constants";
+import { isMeleeWeapon, WEAPON_DATA } from "../config/balance";
 
 // =============================================================================
 // GRID HELPERS
@@ -368,9 +369,8 @@ export function getValidAttackTiles(
 ): { x: number; z: number; hasLOS: boolean }[] {
   const x = fromX ?? unit.gridX;
   const z = fromZ ?? unit.gridZ;
-  const isMelee = unit.combatStyle === "melee";
 
-  if (isMelee) {
+  if (isMeleeWeapon(unit.weapon)) {
     const adjacent = getAdjacentTiles(state, x, z);
     return adjacent.map(tile => {
       const diag = isDiagonal(x, z, tile.x, tile.z);
@@ -441,8 +441,8 @@ export function getHealableAllies(
 
 /** Calculate damage for an attack */
 export function calculateDamage(attacker: UnitState, _defender: UnitState): number {
-  const isMelee = attacker.combatStyle === "melee";
-  return isMelee ? attacker.attack * MELEE_DAMAGE_MULTIPLIER : attacker.attack;
+  const weaponData = WEAPON_DATA[attacker.weapon];
+  return Math.round(attacker.attack * weaponData.damageMultiplier);
 }
 
 /** Apply damage to a unit, returns true if unit dies */
@@ -537,9 +537,8 @@ export function getCoverTiles(
 ): GridPosition[] {
   const x = fromX ?? unit.gridX;
   const z = fromZ ?? unit.gridZ;
-  const isMelee = unit.combatStyle === "melee";
 
-  if (isMelee) {
+  if (isMeleeWeapon(unit.weapon)) {
     const adjacent = getAdjacentTiles(state, x, z);
     return adjacent.filter(tile => {
       const diag = isDiagonal(x, z, tile.x, tile.z);

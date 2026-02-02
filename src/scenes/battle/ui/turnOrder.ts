@@ -18,6 +18,7 @@ import { ArcRotateCamera, Engine } from "@babylonjs/core";
 import type { Unit, Team } from "../../../types";
 import { getClassData } from "../../../types";
 import { ACCUMULATOR_THRESHOLD } from "../../../config";
+import { WEAPON_DATA } from "../../../config/balance";
 import { BOOST_INFO } from "../../loadout/constants";
 import { UNIT_DESIGNATIONS } from "../unitVisuals";
 import type { CameraMode } from "../camera";
@@ -460,11 +461,11 @@ function createTurnOrderRow(
   row.addControl(speedText);
 
   // Weapon + Boost text
-  const weaponType =
-    unit.customization?.combatStyle === "melee" ? "Melee" : "Ranged";
+  const weaponType = unit.customization?.weapon ?? "pistol";
+  const weaponName = WEAPON_DATA[weaponType].name;
   const boostData = BOOST_INFO[unit.boost] || BOOST_INFO[0];
   const boostText = new TextBlock(`boostText${index}`);
-  boostText.text = `${weaponType}, +25% ${boostData.stat}`;
+  boostText.text = `${weaponName}, +${boostData.value}% ${boostData.stat}`;
   boostText.color = "#888888";
   boostText.fontSize = 11;
   boostText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;

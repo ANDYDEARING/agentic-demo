@@ -4,7 +4,7 @@ import type { UnitClass, UnitCustomization } from "../../types";
 export interface UnitState {
   selectedClass: UnitClass;
   selectedBoost: number;
-  selectedStyle: "ranged" | "melee";
+  selectedWeapon: "sword" | "pistol";
   customization: UnitCustomization;
   hasBeenCustomized: boolean;
 }

@@ -27,7 +27,6 @@ import {
   HEAD_VARIANT_COUNT,
   HP_LOW_THRESHOLD,
   HP_MEDIUM_THRESHOLD,
-  BOOST_MULTIPLIER,
 } from "../../config";
 import {
   SKIN_TONES,
@@ -40,6 +39,7 @@ import {
   HP_BAR_BORDER,
 } from "../../config";
 import { hexToColor3 } from "../../utils";
+import { isMeleeWeapon, BOOST_BY_INDEX } from "../../config/balance";
 
 // Greek letters for unit designations (matches LoadoutScene)
 export const UNIT_DESIGNATIONS = ["Δ", "Ψ", "Ω"]; // Delta, Psi, Omega
@@ -121,7 +121,7 @@ export async function createUnit(
   // Default customization if not provided
   const c: UnitCustomization = customization ?? {
     body: "male",
-    combatStyle: "ranged",
+    weapon: "pistol",
     handedness: "right",
     head: 0,
     hairColor: 0,
@@ -163,7 +163,7 @@ export async function createUnit(
 
   // Apply customizations to the model
   applyHeadVisibility(modelMeshes, c.head);
-  applyWeaponVisibility(modelMeshes, c.combatStyle === "melee");
+  applyWeaponVisibility(modelMeshes, isMeleeWeapon(c.weapon));
   applyColorCustomization(modelMeshes, c, teamColor);
 
   // Set metadata for click detection
@@ -173,7 +173,7 @@ export async function createUnit(
 
   // Start idle animation
   animationGroups.forEach((ag) => ag.stop());
-  const isMelee = c.combatStyle === "melee";
+  const isMelee = isMeleeWeapon(c.weapon);
   const idleAnim = isMelee
     ? animationGroups.find((ag) => ag.name === "Idle_Sword")
     : animationGroups.find((ag) => ag.name === "Idle_Gun");
@@ -204,15 +204,16 @@ export async function createUnit(
     teamColor
   );
 
-  // Apply boost multipliers
+  // Apply boost multipliers using BOOST_BY_INDEX
   const boostIndex = boost ?? 0;
-  const hpMultiplier = boostIndex === 0 ? 1 + BOOST_MULTIPLIER : 1;
-  const attackMultiplier = boostIndex === 1 ? 1 + BOOST_MULTIPLIER : 1;
-  const speedMultiplier = boostIndex === 2 ? 1 + BOOST_MULTIPLIER : 1;
+  const boostData = BOOST_BY_INDEX[boostIndex];
+  const hpMultiplier = boostData.stat === "hp" ? 1 + boostData.multiplier : 1;
+  const attackMultiplier = boostData.stat === "attack" ? 1 + boostData.multiplier : 1;
+  const speedMultiplier = boostData.stat === "speed" ? 1 + boostData.multiplier : 1;
 
   const boostedHp = Math.round(classData.hp * hpMultiplier);
   const boostedAttack = Math.round(classData.attack * attackMultiplier);
-  const boostedSpeed = 1 * speedMultiplier;
+  const boostedSpeed = classData.speed * speedMultiplier;
 
   return {
     mesh: hpBarAnchor,
@@ -221,7 +222,6 @@ export async function createUnit(
     gridX,
     gridZ,
     moveRange: classData.moveRange,
-    attackRange: classData.attackRange,
     hp: boostedHp,
     maxHp: boostedHp,
     attack: boostedAttack,

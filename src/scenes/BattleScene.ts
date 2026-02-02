@@ -80,8 +80,6 @@ import {
   ACTIONS_PER_TURN,
   ACCUMULATOR_THRESHOLD,
   SPEED_BONUS_PER_UNUSED_ACTION,
-  MELEE_DAMAGE_MULTIPLIER,
-  BOOST_MULTIPLIER,
   HP_LOW_THRESHOLD,
   HP_MEDIUM_THRESHOLD,
   BATTLE_MODEL_SCALE,
@@ -103,6 +101,9 @@ import {
 // Import audio config
 import { MUSIC, SFX, AUDIO_VOLUMES, LOOP_BUFFER_TIME } from "../config";
 
+// Import balance config
+import { isMeleeWeapon, WEAPON_DATA, BOOST_BY_INDEX } from "../config/balance";
+
 // Import utility functions
 import { hexToColor3, createMusicPlayer, playSfx, rgbToColor3, type MusicPlayer } from "../utils";
 
@@ -111,7 +112,6 @@ let battleMusic: MusicPlayer | null = null;
 
 // Import command pattern for action queue
 import {
-  type CommandExecutor,
   type ControllerContext,
   type BattleCommand,
   CommandQueue,
@@ -166,17 +166,12 @@ import {
 // Animation functions are pure and can be used directly
 // faceClosestEnemy and faceAverageEnemyPosition need units array passed in
 import {
-  // Terrain - available for future use
-  createTerrain as _createTerrain,
-  hasTerrain as _hasTerrainFromSet,
-  // Animations - using directly (most are pure, some need units array)
   playAnimation,
   playIdleAnimation,
   initFacing,
   faceClosestEnemy,
   faceAverageEnemyPosition,
   setUnitFacing,
-  // Unit visuals - using directly
   UNIT_DESIGNATIONS,
   updateHpBar,
   setUnitExhausted,
@@ -184,15 +179,11 @@ import {
   resetUnitAppearance,
   applyConcealVisual,
   removeConcealVisual,
-  // Tutorial overlay
   createTutorialOverlay,
 } from "./battle";
 
 // Import pure replay data structures (for online sync compatibility)
-// Types are from pure logic layer - serializable for network/persistence
 import type { UnitSnapshot, TeamTurnRecord, UnitTurnRecord } from "../battle/replay";
-// Suppress unused import warnings (these are available for future migration)
-void _createTerrain; void _hasTerrainFromSet;
 
 // Import from loadout constants
 import { BOOST_INFO } from "./loadout/constants";
@@ -590,8 +581,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       attack: unit.attack,
       healAmount: unit.healAmount,
       moveRange: unit.moveRange,
-      attackRange: unit.attackRange,
-      combatStyle: unit.customization?.combatStyle ?? "ranged",
+      weapon: unit.customization?.weapon ?? "pistol",
       speed: unit.speed,
       speedBonus: unit.speedBonus,
       accumulator: unit.accumulator,
@@ -656,8 +646,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
   // ============================================
   // TUTORIAL OVERLAY (extracted to ./battle/ui/tutorial.ts)
   // ============================================
-  const _tutorialOverlay = createTutorialOverlay(gui);
-  void _tutorialOverlay; // Available for programmatic show/hide if needed
+  createTutorialOverlay(gui);
 
   // Units
   const units: Unit[] = [];
@@ -670,15 +659,16 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
   const commandQueue = new CommandQueue();
 
   // Helper to get unit ID (for command serialization)
+  // Uses loadoutIndex for stability - array index shifts when units die
   function getUnitId(unit: Unit): string {
-    return `${unit.team}-${units.indexOf(unit)}`;
+    return `${unit.team}-${unit.loadoutIndex}`;
   }
 
   // Helper to find unit by ID
   function findUnitById(id: string): Unit | undefined {
-    const [team, indexStr] = id.split("-");
-    const index = parseInt(indexStr, 10);
-    return units.find((u, i) => u.team === team && i === index);
+    const [team, loadoutIndexStr] = id.split("-");
+    const loadoutIndex = parseInt(loadoutIndexStr, 10);
+    return units.find(u => u.team === team && u.loadoutIndex === loadoutIndex);
   }
 
   // ============================================
@@ -700,8 +690,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       attack: unit.attack,
       healAmount: unit.healAmount,
       moveRange: unit.moveRange,
-      attackRange: unit.attackRange,
-      combatStyle: unit.customization?.combatStyle ?? "ranged",
+      weapon: unit.customization?.weapon ?? "pistol",
       speed: unit.speed,
       speedBonus: unit.speedBonus,
       accumulator: unit.accumulator,
@@ -900,18 +889,6 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       },
     };
   }
-
-  // Note: Controller manager functions available for runtime mode switching.
-  // Currently unused but kept for future network play or settings menu implementation.
-  function _getControllerManager(): ControllerManager {
-    return controllerManager;
-  }
-  function _setControllerManager(manager: ControllerManager): void {
-    controllerManager.dispose();
-    controllerManager = manager;
-  }
-  void _getControllerManager;
-  void _setControllerManager;
 
   // Callback for when a unit's turn starts (set later by command menu)
   let onTurnStartCallback: ((unit: Unit) => void) | null = null;
@@ -1356,7 +1333,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
     for (const unit of units) {
       if (unit.isCovering && unit.hp > 0) {
         // Recalculate and show cover tiles
-        const isMelee = unit.customization?.combatStyle === "melee";
+        const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : false;
         let coveredTiles: { x: number; z: number }[];
         if (isMelee) {
           coveredTiles = getAdjacentTiles(unit.gridX, unit.gridZ).filter(tile => {
@@ -1719,19 +1696,6 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
   // getPathToTarget delegates to rules.ts via wrapper defined in STATE BRIDGE section
 
-  // Legacy function - kept for potential AI/simulation use (simpler than LOS version)
-  function getAttackableEnemiesSimple(unit: Unit, fromX?: number, fromZ?: number): Unit[] {
-    if (!hasActionsRemaining()) return []; // No actions remaining
-    // Use shadow position if pending move, otherwise use provided or current position
-    const effectiveX = fromX ?? shadowPosition?.x ?? unit.gridX;
-    const effectiveZ = fromZ ?? shadowPosition?.z ?? unit.gridZ;
-    return units.filter(u => {
-      if (u.team === unit.team) return false;
-      const distance = Math.abs(u.gridX - effectiveX) + Math.abs(u.gridZ - effectiveZ);
-      return distance <= unit.attackRange;
-    });
-  }
-  void getAttackableEnemiesSimple;
 
   function getHealableAllies(unit: Unit, fromX?: number, fromZ?: number): Unit[] {
     // Only medic can heal, needs actions remaining
@@ -2181,7 +2145,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       clearCoverVisualizationForUnit(unit);
 
       // Recalculate covered tiles based on current positions
-      const isMelee = unit.customization?.combatStyle === "melee";
+      const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : false;
       let coveredTiles: { x: number; z: number }[];
 
       if (isMelee) {
@@ -2229,7 +2193,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
   function showCoverPreview(unit: Unit, fromX: number, fromZ: number): void {
     clearCoverPreview();
 
-    const isMelee = unit.customization?.combatStyle === "melee";
+    const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : false;
     let tiles: { x: number; z: number }[];
 
     if (isMelee) {
@@ -2424,6 +2388,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
     overlay.height = "100%";
     overlay.thickness = 0; // No border on overlay (screen border handles it)
     overlay.background = "rgba(0,0,0,0.7)";
+    overlay.zIndex = 300; // Above battle messages (100) and other UI
     gui.addControl(overlay);
 
     const container = new StackPanel();
@@ -2452,6 +2417,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
     const backBtn = Button.CreateSimpleButton("backBtn", "Back to Loadout");
     backBtn.width = "200px";
     backBtn.height = "50px";
+    backBtn.paddingTop = "20px";
     backBtn.color = "white";
     backBtn.background = "#444444";
     backBtn.cornerRadius = 10;
@@ -2854,7 +2820,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       setUnitFacing(attacker, defender.gridX, defender.gridZ);
 
       // Play attack animation based on combat style
-      const isMelee = attacker.customization?.combatStyle === "melee";
+      const isMelee = attacker.customization?.weapon ? isMeleeWeapon(attacker.customization.weapon) : false;
       const attackAnim = isMelee ? "Sword_Slash" : "Gun_Shoot";
 
       // Play swing/shot sound immediately with animation
@@ -2884,9 +2850,10 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
           return;
         }
 
-        // Apply damage (melee does more damage - using centralized multiplier)
-        const isMeleeAttack = attacker.customization?.combatStyle === "melee";
-        const damage = isMeleeAttack ? attacker.attack * MELEE_DAMAGE_MULTIPLIER : attacker.attack;
+        // Apply damage using weapon's damage multiplier
+        const attackerWeapon = attacker.customization?.weapon ?? "pistol";
+        const damage = Math.round(attacker.attack * WEAPON_DATA[attackerWeapon].damageMultiplier);
+        const isMeleeAttack = isMeleeWeapon(attackerWeapon);
         defender.hp = Math.max(0, defender.hp - damage);
         console.log(`${attacker.team} ${attacker.unitClass} attacks ${defender.team} ${defender.unitClass} for ${damage} damage! (${defender.hp}/${defender.maxHp} HP)`);
 
@@ -2986,7 +2953,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
         weaponMeshes.forEach(m => m.setEnabled(false));
 
         playAnimation(healer, "Interact", false, () => {
-          const isMelee = healer.customization?.combatStyle === "melee";
+          const isMelee = healer.customization?.weapon ? isMeleeWeapon(healer.customization.weapon) : false;
           healer.modelMeshes?.forEach(m => {
             if (m.name.toLowerCase().includes("sword")) m.setEnabled(isMelee);
             else if (m.name.toLowerCase().includes("pistol")) m.setEnabled(!isMelee);
@@ -3037,7 +3004,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
         weaponMeshes.forEach(m => m.setEnabled(false));
 
         playAnimation(unit, "Interact", false, () => {
-          const isMelee = unit.customization?.combatStyle === "melee";
+          const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : false;
           unit.modelMeshes?.forEach(m => {
             if (m.name.toLowerCase().includes("sword")) {
               m.setEnabled(isMelee);
@@ -3085,7 +3052,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
       if (unit.isCovering) {
         // Get covered tiles based on weapon type
-        const isMelee = unit.customization?.combatStyle === "melee";
+        const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : false;
         let coveredTiles: { x: number; z: number }[];
 
         if (isMelee) {
@@ -3122,7 +3089,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
         weaponMeshes.forEach(m => m.setEnabled(false));
 
         playAnimation(unit, "Interact", false, () => {
-          const isMelee = unit.customization?.combatStyle === "melee";
+          const isMelee = unit.customization?.weapon ? isMeleeWeapon(unit.customization.weapon) : false;
           unit.modelMeshes?.forEach(m => {
             if (m.name.toLowerCase().includes("sword")) {
               m.setEnabled(isMelee);
@@ -3138,79 +3105,6 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
       }
     });
   }
-
-  // ============================================
-  // COMMAND EXECUTOR
-  // ============================================
-  // Implements the CommandExecutor interface from /src/battle/commands.ts
-  // This allows actions to be executed via the command pattern.
-
-  /**
-   * Command executor implementation for the battle scene.
-   * Bridges between pure commands and visual execution.
-   * Note: Currently unused - kept for future headless simulation support.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _commandExecutor: CommandExecutor = {
-    executeMove(command, onComplete) {
-      if (!turnState) { onComplete(); return; }
-      const unit = turnState.unit;
-      animateMovement(unit, command.targetX, command.targetZ, () => {
-        updateCornerIndicators(unit);
-        onComplete();
-      });
-    },
-
-    executeAttack(command, onComplete) {
-      if (!turnState) { onComplete(); return; }
-      const unit = turnState.unit;
-      const target = findUnitById(command.targetUnitId);
-      if (!target || target.hp <= 0) { onComplete(); return; }
-      executeAttack(unit, target, onComplete);
-    },
-
-    executeHeal(command, onComplete) {
-      if (!turnState) { onComplete(); return; }
-      const unit = turnState.unit;
-      const target = findUnitById(command.targetUnitId);
-      if (!target) { onComplete(); return; }
-      executeHeal(unit, target, onComplete);
-    },
-
-    executeConceal(_command, onComplete) {
-      if (!turnState) { onComplete(); return; }
-      executeConceal(turnState.unit, onComplete);
-    },
-
-    executeCover(_command, onComplete) {
-      if (!turnState) { onComplete(); return; }
-      const unit = turnState.unit;
-      // Find final position from remaining commands
-      const lastMove = commandQueue.getLastMoveCommand();
-      const finalX = lastMove?.targetX ?? unit.gridX;
-      const finalZ = lastMove?.targetZ ?? unit.gridZ;
-      executeCover(unit, onComplete, finalX, finalZ);
-    },
-
-    onQueueComplete() {
-      if (turnState) {
-        faceClosestEnemy(turnState.unit, units);
-      }
-      isExecutingActions = false;
-      endCurrentUnitTurn();
-    },
-
-    checkReactions(onReactionComplete) {
-      if (!turnState || turnState.unit.hp <= 0) return false;
-      return checkAndTriggerCoverReaction(turnState.unit, () => {
-        faceClosestEnemy(turnState!.unit, units);
-        isExecutingActions = false;
-        endCurrentUnitTurn();
-        onReactionComplete();
-      });
-    },
-  };
-  void _commandExecutor;
 
   // ============================================
   // UNDO SYSTEM
@@ -3986,7 +3880,8 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
     const designation = UNIT_DESIGNATIONS[currentUnit.loadoutIndex] || "?";
     const className = getClassData(currentUnit.unitClass).name;
-    const weapon = currentUnit.customization?.combatStyle === "melee" ? "MELEE" : "RANGED";
+    const weaponType = currentUnit.customization?.weapon ?? "pistol";
+    const weapon = WEAPON_DATA[weaponType].name.toUpperCase();
     const boostData = BOOST_INFO[currentUnit.boost] || BOOST_INFO[0];
 
     // Line 1: Symbol Class (team color)
@@ -4374,10 +4269,11 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
     row.addControl(speedText);
 
     // Weapon + Boost text
-    const weaponType = unit.customization?.combatStyle === "melee" ? "Melee" : "Ranged";
+    const weaponType = unit.customization?.weapon ?? "pistol";
+    const weaponName = WEAPON_DATA[weaponType].name;
     const boostData = BOOST_INFO[unit.boost] || BOOST_INFO[0];
     const boostText = new TextBlock(`boostText${index}`);
-    boostText.text = `${weaponType}, +25% ${boostData.stat}`;
+    boostText.text = `${weaponName}, +${boostData.value}% ${boostData.stat}`;
     boostText.color = "#888888";
     boostText.fontSize = 11;
     boostText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -4829,8 +4725,9 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
         const target = action.targetUnit;
         const targetDesignation = UNIT_DESIGNATIONS[target.loadoutIndex] || "?";
         const targetClass = getClassData(target.unitClass).name;
-        const isMelee = currentUnit.customization?.combatStyle === "melee";
-        const baseDamage = isMelee ? currentUnit.attack * MELEE_DAMAGE_MULTIPLIER : currentUnit.attack;
+        const currentWeapon = currentUnit.customization?.weapon ?? "pistol";
+        const isMelee = isMeleeWeapon(currentWeapon);
+        const baseDamage = Math.round(currentUnit.attack * WEAPON_DATA[currentWeapon].damageMultiplier);
         // Check if target is concealed (and conceal hasn't been broken by earlier action)
         const targetIsConcealed = target.isConcealed && !concealBroken.has(target);
         const damage = targetIsConcealed ? 0 : baseDamage;
@@ -5122,7 +5019,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
 
     // Update attack button based on combat style
     if (attackBtn.textBlock) {
-      const isMelee = currentUnit.customization?.combatStyle === "melee";
+      const isMelee = currentUnit.customization?.weapon ? isMeleeWeapon(currentUnit.customization.weapon) : false;
       attackBtn.textBlock.text = isMelee ? "Strike" : "Shoot";
     }
 
@@ -5150,7 +5047,7 @@ export function createBattleScene(engine: Engine, _canvas: HTMLCanvasElement, lo
           lines.push(`  Move to (${action.targetX},${action.targetZ})`);
         } else if (action.type === "attack" && action.targetUnit) {
           const targetName = getClassData(action.targetUnit.unitClass).name;
-          const isMelee = currentUnit.customization?.combatStyle === "melee";
+          const isMelee = currentUnit.customization?.weapon ? isMeleeWeapon(currentUnit.customization.weapon) : false;
           const attackVerb = isMelee ? "Strike" : "Shoot";
           lines.push(`  ${attackVerb} ${targetName}`);
         } else if (action.type === "ability" && action.abilityName === "heal" && action.targetUnit) {
@@ -5246,7 +5143,7 @@ async function createUnit(
   // Default customization if not provided
   const c: UnitCustomization = customization ?? {
     body: "male",
-    combatStyle: "ranged",
+    weapon: "pistol",
     handedness: "right",
     head: 0,
     hairColor: 0,
@@ -5289,10 +5186,10 @@ async function createUnit(
     headMeshes.forEach(mesh => mesh.setEnabled(i === c.head));
   }
 
-  // Weapon visibility based on combat style
+  // Weapon visibility based on weapon type
   const swordMeshes = modelMeshes.filter(m => m.name.toLowerCase().includes("sword"));
   const pistolMeshes = modelMeshes.filter(m => m.name.toLowerCase().includes("pistol"));
-  const isMelee = c.combatStyle === "melee";
+  const isMelee = isMeleeWeapon(c.weapon);
   swordMeshes.forEach(m => m.setEnabled(isMelee));
   pistolMeshes.forEach(m => m.setEnabled(!isMelee));
 
@@ -5376,16 +5273,16 @@ async function createUnit(
 
   const originalColor = teamColor.clone();
 
-  // Apply boost multipliers based on boost index
-  // boost 0 = HP, boost 1 = Damage, boost 2 = Speed
+  // Apply boost multipliers based on boost index using BOOST_BY_INDEX
   const boostIndex = boost ?? 0;
-  const hpMultiplier = boostIndex === 0 ? 1 + BOOST_MULTIPLIER : 1;
-  const attackMultiplier = boostIndex === 1 ? 1 + BOOST_MULTIPLIER : 1;
-  const speedMultiplier = boostIndex === 2 ? 1 + BOOST_MULTIPLIER : 1;
+  const boostData = BOOST_BY_INDEX[boostIndex];
+  const hpMultiplier = boostData.stat === "hp" ? 1 + boostData.multiplier : 1;
+  const attackMultiplier = boostData.stat === "attack" ? 1 + boostData.multiplier : 1;
+  const speedMultiplier = boostData.stat === "speed" ? 1 + boostData.multiplier : 1;
 
   const boostedHp = Math.round(classData.hp * hpMultiplier);
   const boostedAttack = Math.round(classData.attack * attackMultiplier);
-  const boostedSpeed = 1 * speedMultiplier;
+  const boostedSpeed = classData.speed * speedMultiplier;
 
   return {
     mesh: hpBarAnchor,  // Use anchor as the main "mesh" for positioning
@@ -5394,7 +5291,6 @@ async function createUnit(
     gridX,
     gridZ,
     moveRange: classData.moveRange,
-    attackRange: classData.attackRange,
     hp: boostedHp,
     maxHp: boostedHp,
     attack: boostedAttack,

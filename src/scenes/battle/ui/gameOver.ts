@@ -39,6 +39,7 @@ export function showGameOver(
   overlay.width = "100%";
   overlay.height = "100%";
   overlay.background = "rgba(0,0,0,0.7)";
+  overlay.zIndex = 300; // Above battle messages (100) and other UI
   gui.addControl(overlay);
 
   const container = new StackPanel();
@@ -67,6 +68,7 @@ export function showGameOver(
   const backBtn = Button.CreateSimpleButton("backBtn", "Back to Loadout");
   backBtn.width = "200px";
   backBtn.height = "50px";
+  backBtn.paddingTop = "20px";
   backBtn.color = "white";
   backBtn.background = "#444444";
   backBtn.cornerRadius = 10;

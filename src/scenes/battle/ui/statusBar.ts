@@ -20,6 +20,7 @@ import {
 } from "../../../config";
 import { BOOST_INFO } from "../../loadout/constants";
 import { HP_BAR_GREEN, HP_BAR_ORANGE, HP_BAR_RED } from "../../../config";
+import { WEAPON_DATA } from "../../../config/balance";
 import { UNIT_DESIGNATIONS } from "../unitVisuals";
 
 // =============================================================================
@@ -119,8 +120,8 @@ export function updateStatusBar(
 
   const designation = UNIT_DESIGNATIONS[currentUnit.loadoutIndex] || "?";
   const className = getClassData(currentUnit.unitClass).name;
-  const weapon =
-    currentUnit.customization?.combatStyle === "melee" ? "MELEE" : "RANGED";
+  const weaponType = currentUnit.customization?.weapon ?? "pistol";
+  const weapon = WEAPON_DATA[weaponType].name.toUpperCase();
   const boostData = BOOST_INFO[currentUnit.boost] || BOOST_INFO[0];
 
   // Line 1: Symbol Class (team color)
