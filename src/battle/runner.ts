@@ -106,6 +106,42 @@ function createUnitFromLoadout(
 // AI DECISION MAKING (SYNCHRONOUS)
 // =============================================================================
 
+// Reusable temp unit to avoid object allocation in hot loops
+const tempUnit: UnitState = {
+  id: "", unitClass: "soldier", team: "player1", gridX: 0, gridZ: 0,
+  hp: 0, maxHp: 0, attack: 0, healAmount: 0, moveRange: 0, weapon: "pistol",
+  speed: 0, speedBonus: 0, accumulator: 0, loadoutIndex: 0,
+  isConcealed: false, isCovering: false, coveredTiles: [], actionsUsed: 0,
+};
+
+// Reusable maps to avoid allocation per turn
+const pendingDamageMap = new Map<string, number>();
+const pendingHealingMap = new Map<string, number>();
+const pendingKillSet = new Set<string>();
+
+function copyToTempUnit(unit: UnitState, x: number, z: number): UnitState {
+  tempUnit.id = unit.id;
+  tempUnit.unitClass = unit.unitClass;
+  tempUnit.team = unit.team;
+  tempUnit.gridX = x;
+  tempUnit.gridZ = z;
+  tempUnit.hp = unit.hp;
+  tempUnit.maxHp = unit.maxHp;
+  tempUnit.attack = unit.attack;
+  tempUnit.healAmount = unit.healAmount;
+  tempUnit.moveRange = unit.moveRange;
+  tempUnit.weapon = unit.weapon;
+  tempUnit.speed = unit.speed;
+  tempUnit.speedBonus = unit.speedBonus;
+  tempUnit.accumulator = unit.accumulator;
+  tempUnit.loadoutIndex = unit.loadoutIndex;
+  tempUnit.isConcealed = unit.isConcealed;
+  tempUnit.isCovering = unit.isCovering;
+  tempUnit.coveredTiles = unit.coveredTiles;
+  tempUnit.actionsUsed = unit.actionsUsed;
+  return tempUnit;
+}
+
 /**
  * Synchronous AI decision making.
  * Returns all commands the AI wants to execute this turn.
@@ -114,14 +150,19 @@ function getAICommands(state: BattleState, unit: UnitState): BattleCommand[] {
   const commands: BattleCommand[] = [];
   let actionsUsed = 0;
   const maxActions = ACTIONS_PER_TURN;
-  const pendingDamage = new Map<string, number>();
-  const pendingHealing = new Map<string, number>();
+
+  // Reuse maps instead of allocating new ones
+  pendingDamageMap.clear();
+  pendingHealingMap.clear();
 
   // Create a working copy of unit position for planning
   let currentX = unit.gridX;
   let currentZ = unit.gridZ;
   let isConcealed = unit.isConcealed;
   let isCovering = unit.isCovering;
+
+  // Pre-compute damage once
+  const unitDamage = Math.round(unit.attack * WEAPON_DATA[unit.weapon].damageMultiplier);
 
   while (actionsUsed < maxActions) {
     const action = chooseBestAction(
@@ -131,10 +172,11 @@ function getAICommands(state: BattleState, unit: UnitState): BattleCommand[] {
       currentZ,
       actionsUsed,
       maxActions,
-      pendingDamage,
-      pendingHealing,
+      pendingDamageMap,
+      pendingHealingMap,
       isConcealed,
-      isCovering
+      isCovering,
+      unitDamage
     );
 
     if (!action) break;
@@ -146,21 +188,16 @@ function getAICommands(state: BattleState, unit: UnitState): BattleCommand[] {
     if (action.type === "move") {
       currentX = action.targetX;
       currentZ = action.targetZ;
-    }
-    if (action.type === "conceal") {
+    } else if (action.type === "conceal") {
       isConcealed = true;
-    }
-    if (action.type === "cover") {
+    } else if (action.type === "cover") {
       isCovering = true;
-    }
-    if (action.type === "attack") {
-      const damage = Math.round(unit.attack * WEAPON_DATA[unit.weapon].damageMultiplier);
-      const current = pendingDamage.get(action.targetUnitId) || 0;
-      pendingDamage.set(action.targetUnitId, current + damage);
-    }
-    if (action.type === "heal") {
-      const current = pendingHealing.get(action.targetUnitId) || 0;
-      pendingHealing.set(action.targetUnitId, current + unit.healAmount);
+    } else if (action.type === "attack") {
+      const current = pendingDamageMap.get(action.targetUnitId) || 0;
+      pendingDamageMap.set(action.targetUnitId, current + unitDamage);
+    } else if (action.type === "heal") {
+      const current = pendingHealingMap.get(action.targetUnitId) || 0;
+      pendingHealingMap.set(action.targetUnitId, current + unit.healAmount);
     }
   }
 
@@ -177,109 +214,100 @@ function chooseBestAction(
   pendingDamage: Map<string, number>,
   pendingHealing: Map<string, number>,
   isConcealed: boolean,
-  isCovering: boolean
+  isCovering: boolean,
+  unitDamage: number
 ): BattleCommand | null {
   const enemyTeam = unit.team === "player1" ? "player2" : "player1";
   const isMelee = isMeleeWeapon(unit.weapon);
   const actionsLeft = maxActions - actionsUsed;
 
-  // Calculate pending kills
-  const pendingKillIds = new Set<string>();
+  // Calculate pending kills - reuse set
+  pendingKillSet.clear();
   for (const [enemyId, damage] of pendingDamage) {
-    const enemy = state.units.find((u) => u.id === enemyId);
-    if (enemy && enemy.hp <= damage) {
-      pendingKillIds.add(enemyId);
+    // Inline find for speed
+    for (let i = 0; i < state.units.length; i++) {
+      const u = state.units[i];
+      if (u.id === enemyId && u.hp <= damage) {
+        pendingKillSet.add(enemyId);
+        break;
+      }
     }
   }
 
-  // Get enemies (excluding pending kills)
-  const allEnemies = state.units.filter(
-    (u) => u.team === enemyTeam && u.hp > 0 && !pendingKillIds.has(u.id)
-  );
+  // Get enemies (excluding pending kills) - build inline to avoid extra filter
+  const allEnemies: UnitState[] = [];
+  for (let i = 0; i < state.units.length; i++) {
+    const u = state.units[i];
+    if (u.team === enemyTeam && u.hp > 0 && !pendingKillSet.has(u.id)) {
+      allEnemies.push(u);
+    }
+  }
 
-  // Create temp state with current position for queries
-  const tempUnit = { ...unit, gridX: currentX, gridZ: currentZ };
-  const enemies = getAttackableEnemies(state, tempUnit).filter(
-    (e) => !pendingKillIds.has(e.id)
-  );
-  const moveTiles = getValidMoveTiles(
-    state,
-    tempUnit,
-    undefined,
-    undefined,
-    pendingKillIds
-  );
+  // Use reusable temp unit instead of spread
+  copyToTempUnit(unit, currentX, currentZ);
+  const attackableEnemies = getAttackableEnemies(state, tempUnit);
+
+  // Filter in-place style
+  const enemies: UnitState[] = [];
+  for (let i = 0; i < attackableEnemies.length; i++) {
+    if (!pendingKillSet.has(attackableEnemies[i].id)) {
+      enemies.push(attackableEnemies[i]);
+    }
+  }
+
+  const moveTiles = getValidMoveTiles(state, tempUnit, undefined, undefined, pendingKillSet);
 
   // === 1. KILL CHECK ===
   const killCommand = findKillOpportunity(
-    state,
-    unit,
-    currentX,
-    currentZ,
-    actionsLeft,
-    enemies,
-    moveTiles,
-    allEnemies,
-    pendingDamage
+    state, unit, actionsLeft, enemies, moveTiles, pendingDamage, unitDamage
   );
   if (killCommand) return killCommand;
 
   // === 2. CLASS ABILITY ===
   const abilityCommand = getClassAbility(
-    state,
-    unit,
-    currentX,
-    currentZ,
-    enemies,
-    moveTiles,
-    allEnemies,
-    actionsLeft,
-    isConcealed,
-    isCovering,
-    pendingHealing
+    state, unit, currentX, currentZ, enemies, moveTiles,
+    actionsLeft, isConcealed, isCovering, pendingHealing
   );
   if (abilityCommand) return abilityCommand;
 
   // === 3. ATTACK if in range ===
   if (enemies.length > 0) {
-    const target = selectAttackTarget(enemies);
-    return { type: "attack", targetUnitId: target.id };
+    return { type: "attack", targetUnitId: selectAttackTarget(enemies).id };
   }
 
   // === 4. MOVE/POSITION ===
-  return getMoveCommand(state, unit, currentX, currentZ, moveTiles, allEnemies, isMelee);
+  return getMoveCommand(state, unit, moveTiles, allEnemies, isMelee);
 }
 
 function findKillOpportunity(
   state: BattleState,
   unit: UnitState,
-  _currentX: number,
-  _currentZ: number,
   actionsLeft: number,
   enemies: UnitState[],
   moveTiles: { x: number; z: number }[],
-  _allEnemies: UnitState[],
-  pendingDamage: Map<string, number>
+  pendingDamage: Map<string, number>,
+  unitDamage: number
 ): BattleCommand | null {
-  const damage = Math.round(unit.attack * WEAPON_DATA[unit.weapon].damageMultiplier);
-
   // Check if we can kill an enemy in range
-  for (const enemy of enemies) {
+  for (let i = 0; i < enemies.length; i++) {
+    const enemy = enemies[i];
     const pending = pendingDamage.get(enemy.id) || 0;
-    if (enemy.hp <= damage + pending) {
+    if (enemy.hp <= unitDamage + pending) {
       return { type: "attack", targetUnitId: enemy.id };
     }
   }
 
   // Check if we can move to kill
   if (actionsLeft >= 2) {
-    for (const tile of moveTiles) {
-      const tempUnit = { ...unit, gridX: tile.x, gridZ: tile.z };
+    for (let i = 0; i < moveTiles.length; i++) {
+      const tile = moveTiles[i];
+      copyToTempUnit(unit, tile.x, tile.z);
       const enemiesFromTile = getAttackableEnemies(state, tempUnit);
 
-      for (const enemy of enemiesFromTile) {
+      for (let j = 0; j < enemiesFromTile.length; j++) {
+        const enemy = enemiesFromTile[j];
         const pending = pendingDamage.get(enemy.id) || 0;
-        if (enemy.hp <= damage + pending) {
+        if (enemy.hp <= unitDamage + pending) {
           return { type: "move", targetX: tile.x, targetZ: tile.z };
         }
       }
@@ -296,7 +324,6 @@ function getClassAbility(
   currentZ: number,
   enemies: UnitState[],
   moveTiles: { x: number; z: number }[],
-  allEnemies: UnitState[],
   actionsLeft: number,
   isConcealed: boolean,
   isCovering: boolean,
@@ -312,7 +339,7 @@ function getClassAbility(
     case "soldier":
       if (!isCovering) {
         if (enemies.length > 0) return null;
-        if (actionsLeft >= 2 && canReachAttackPosition(state, unit, currentX, currentZ, moveTiles, allEnemies)) {
+        if (actionsLeft >= 2 && canReachAttackPosition(state, unit, moveTiles)) {
           return null;
         }
         return { type: "cover" };
@@ -333,7 +360,7 @@ function getMedicHealCommand(
   currentZ: number,
   pendingHealing: Map<string, number>
 ): BattleCommand | null {
-  const tempUnit = { ...unit, gridX: currentX, gridZ: currentZ };
+  copyToTempUnit(unit, currentX, currentZ);
   const healable = getHealableAllies(state, tempUnit);
 
   // Filter out allies who would be at full HP after pending heals
@@ -358,13 +385,11 @@ function getMedicHealCommand(
 function canReachAttackPosition(
   state: BattleState,
   unit: UnitState,
-  _currentX: number,
-  _currentZ: number,
-  moveTiles: { x: number; z: number }[],
-  _allEnemies: UnitState[]
+  moveTiles: { x: number; z: number }[]
 ): boolean {
-  for (const tile of moveTiles) {
-    const tempUnit = { ...unit, gridX: tile.x, gridZ: tile.z };
+  for (let i = 0; i < moveTiles.length; i++) {
+    const tile = moveTiles[i];
+    copyToTempUnit(unit, tile.x, tile.z);
     if (getAttackableEnemies(state, tempUnit).length > 0) {
       return true;
     }
@@ -380,8 +405,6 @@ function selectAttackTarget(enemies: UnitState[]): UnitState {
 function getMoveCommand(
   state: BattleState,
   unit: UnitState,
-  _currentX: number,
-  _currentZ: number,
   moveTiles: { x: number; z: number }[],
   allEnemies: UnitState[],
   _isMelee: boolean
@@ -392,8 +415,9 @@ function getMoveCommand(
   let bestTile: { x: number; z: number } | null = null;
   let bestScore = -Infinity;
 
-  for (const tile of moveTiles) {
-    const tempUnit = { ...unit, gridX: tile.x, gridZ: tile.z };
+  for (let i = 0; i < moveTiles.length; i++) {
+    const tile = moveTiles[i];
+    copyToTempUnit(unit, tile.x, tile.z);
     const attackable = getAttackableEnemies(state, tempUnit);
 
     // Score: prioritize tiles where we can attack
@@ -402,9 +426,10 @@ function getMoveCommand(
     // Otherwise, get closer to nearest enemy
     if (attackable.length === 0) {
       let minDist = Infinity;
-      for (const enemy of allEnemies) {
+      for (let j = 0; j < allEnemies.length; j++) {
+        const enemy = allEnemies[j];
         const dist = Math.abs(tile.x - enemy.gridX) + Math.abs(tile.z - enemy.gridZ);
-        minDist = Math.min(minDist, dist);
+        if (dist < minDist) minDist = dist;
       }
       score = -minDist; // Negative so closer is better
     }
@@ -513,14 +538,13 @@ export function runBattle(
     // Get AI commands
     const commands = getAICommands(state, currentUnit);
 
-    // Add unit ID to commands
-    const commandsWithUnit = commands.map((cmd) => ({
-      ...cmd,
-      unitId: currentUnit!.id,
-    }));
+    // Add unit ID to commands (mutate in place to avoid allocation)
+    for (let i = 0; i < commands.length; i++) {
+      (commands[i] as BattleCommand & { unitId: string }).unitId = currentUnit!.id;
+    }
 
     // Execute commands
-    executeCommands(state, commandsWithUnit);
+    executeCommands(state, commands as (BattleCommand & { unitId: string })[]);
 
     // Apply speed bonus for unused actions
     const actionsUsed = commands.length;
