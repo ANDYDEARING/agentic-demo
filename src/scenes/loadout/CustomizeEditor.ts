@@ -67,7 +67,6 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
     gui,
     screenWidth,
     screenHeight,
-    isMobile: _isMobile, // Used for interface compatibility, layout uses isSmallScreen
     fontSize,
     smallFontSize,
     buttonHeight,
@@ -81,7 +80,6 @@ export function createCustomizeEditor(config: CustomizeEditorConfig): CustomizeE
     registerForCleanup,
     isSceneDisposed,
   } = config;
-  void _isMobile; // Suppress unused warning
 
   // Layout calculations
   const isSmallScreen = screenWidth < 1200;
